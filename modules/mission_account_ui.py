@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, 
     QPushButton, QTextEdit, QProgressBar, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
-    QSpinBox, QComboBox
+    QSpinBox, QComboBox, QApplication, QSplitter
 )
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from datetime import datetime
@@ -95,36 +95,44 @@ class MissionAccountTab(QWidget):
         progress_group.setLayout(progress_layout)
         layout.addWidget(progress_group)
         
-        # 结果表格
+        # 创建一个垂直分割器
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)  # 防止分割部分被完全折叠
+        layout.addWidget(splitter, 1)  # 添加拉伸因子1
+        
+        # 结果表格区域
         result_group = QGroupBox("账号列表")
         result_layout = QVBoxLayout()
         
         self.account_table = QTableWidget()
-        self.account_table.setColumnCount(11)  # 增加列数为11
+        self.account_table.setColumnCount(11)
         self.account_table.setHorizontalHeaderLabels([
             "任务ID", "账号ID", "账号名称", "两步密码", "分组", "状态", 
             "添加次数", "添加数量", "更新时间", "验证码", "发送时间"
         ])
         
-        # 设置表格列宽
+        # 设置表格列宽比例
+        header = self.account_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)  # 所有列都参与自适应
+        
+        # 设置特定列的固定宽度
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # 任务ID
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # 账号ID
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)  # 添加次数
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)  # 添加数量
+        
         self.account_table.setColumnWidth(0, 80)   # 任务ID
         self.account_table.setColumnWidth(1, 80)   # 账号ID
-        self.account_table.setColumnWidth(2, 120)  # 账号名称
-        self.account_table.setColumnWidth(3, 200)  # 两步密码
-        self.account_table.setColumnWidth(4, 100)  # 分组
-        self.account_table.setColumnWidth(5, 100)  # 状态
         self.account_table.setColumnWidth(6, 80)   # 添加次数
         self.account_table.setColumnWidth(7, 80)   # 添加数量
-        self.account_table.setColumnWidth(8, 150)  # 更新时间
-        self.account_table.setColumnWidth(9, 100)  # 验证码
-        self.account_table.setColumnWidth(10, 150) # 发送时间
         
         # 设置表格其他属性
-        self.account_table.horizontalHeader().setStretchLastSection(True)  # 最后一列自适应
-        self.account_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)  # 允许手动调整列宽
         self.account_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # 整行选择
         self.account_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)  # 单行选择
         self.account_table.setAlternatingRowColors(True)  # 交替行颜色
+        
+        # 添加表格双击事件
+        self.account_table.cellDoubleClicked.connect(self.copy_cell_content)
         
         result_layout.addWidget(self.account_table)
         
@@ -154,15 +162,21 @@ class MissionAccountTab(QWidget):
         
         result_layout.addLayout(page_control_layout)
         result_group.setLayout(result_layout)
-        layout.addWidget(result_group)
+        splitter.addWidget(result_group)
         
         # 日志区域
         log_group = QGroupBox("日志")
         log_layout = QVBoxLayout()
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
+        # 设置固定高度为150像素
+        self.log_area.setFixedHeight(150)
+        # 设置最小宽度，但允许水平方向自适应
+        self.log_area.setMinimumWidth(200)
         log_layout.addWidget(self.log_area)
         log_group.setLayout(log_layout)
+        
+        # 不再将日志区域添加到分割器，而是直接添加到主布局
         layout.addWidget(log_group)
         
         self.setLayout(layout)
@@ -215,11 +229,11 @@ class MissionAccountTab(QWidget):
         """更新指定账号的验证码和发送时间"""
         for row in range(self.account_table.rowCount()):
             if self.account_table.item(row, 1).text() == account_id:
-                # 更新验证码
-                self.account_table.setItem(row, 8, QTableWidgetItem(code))
-                # 更新发送时间
+                # 更新验证码 - 修改为第9列
+                self.account_table.setItem(row, 9, QTableWidgetItem(code))
+                # 更新发送时间 - 修改为第10列
                 time_str = datetime.fromtimestamp(send_time).strftime('%Y-%m-%d %H:%M:%S')
-                self.account_table.setItem(row, 9, QTableWidgetItem(time_str))
+                self.account_table.setItem(row, 10, QTableWidgetItem(time_str))
                 self.log_message_signal.emit(f"账号 {account_id} 的验证码已更新: {code}")
                 break
                 
@@ -273,9 +287,12 @@ class MissionAccountTab(QWidget):
             self.account_table.setItem(row, 5, QTableWidgetItem(account['status_text']))
             self.account_table.setItem(row, 6, QTableWidgetItem(str(account['add_contacts_times'])))
             self.account_table.setItem(row, 7, QTableWidgetItem(str(account['add_contacts_num'])))
+            # 更新时间放在第8列
             self.account_table.setItem(row, 8, QTableWidgetItem(account['update_time_text']))
-            self.account_table.setItem(row, 9, QTableWidgetItem(""))  # 验证码列
-            self.account_table.setItem(row, 10, QTableWidgetItem(""))  # 发送时间列
+            # 验证码放在第9列
+            self.account_table.setItem(row, 9, QTableWidgetItem(""))
+            # 发送时间放在第10列
+            self.account_table.setItem(row, 10, QTableWidgetItem(""))
         
         # 更新页码显示
         self.page_label.setText(f"{self.current_page}/{self.total_pages}")
@@ -400,3 +417,11 @@ class MissionAccountTab(QWidget):
             
         self.worker = None
         self.work_thread = None 
+
+    def copy_cell_content(self, row, column):
+        """双击单元格复制内容到剪贴板"""
+        if column in [3, 9]:  # 两步密码和验证码列
+            item = self.account_table.item(row, column)
+            if item and item.text():
+                QApplication.clipboard().setText(item.text())
+                self.log_message(f"已复制到剪贴板: {item.text()}") 

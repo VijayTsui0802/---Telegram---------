@@ -278,58 +278,71 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.tab_widget)
 
     def setup_main_tab(self):
-        """设置主要功能标签页"""
+        """设置主标签页"""
         layout = QVBoxLayout(self.main_tab)
         
-        # 配置区域
-        config_group = QGroupBox("任务配置")
-        config_layout = QVBoxLayout()
-
-        # ID范围设置
-        id_layout = QHBoxLayout()
-        id_layout.addWidget(QLabel("起始ID:"))
+        # 任务配置区域
+        task_group = QGroupBox("任务配置")
+        task_layout = QHBoxLayout()
+        
+        # 起始ID
+        start_id_layout = QHBoxLayout()
+        start_id_layout.addWidget(QLabel("起始ID:"))
         self.start_id_spinbox = QSpinBox()
         self.start_id_spinbox.setRange(0, 999999999)
         self.start_id_spinbox.setValue(11312122)
-        id_layout.addWidget(self.start_id_spinbox)
-
-        id_layout.addWidget(QLabel("结束ID:"))
+        start_id_layout.addWidget(self.start_id_spinbox)
+        task_layout.addLayout(start_id_layout)
+        
+        # 结束ID
+        end_id_layout = QHBoxLayout()
+        end_id_layout.addWidget(QLabel("结束ID:"))
         self.end_id_spinbox = QSpinBox()
         self.end_id_spinbox.setRange(0, 999999999)
         self.end_id_spinbox.setValue(11312122)
-        id_layout.addWidget(self.end_id_spinbox)
-
-        id_layout.addWidget(QLabel("请求间隔(秒):"))
+        end_id_layout.addWidget(self.end_id_spinbox)
+        task_layout.addLayout(end_id_layout)
+        
+        # 请求间隔
+        interval_layout = QHBoxLayout()
+        interval_layout.addWidget(QLabel("请求间隔(秒):"))
         self.interval_spinbox = QSpinBox()
         self.interval_spinbox.setRange(0, 60)
         self.interval_spinbox.setValue(1)
-        id_layout.addWidget(self.interval_spinbox)
-        config_layout.addLayout(id_layout)
-
-        config_group.setLayout(config_layout)
-        layout.addWidget(config_group)
-
-        # 控制按钮
+        interval_layout.addWidget(self.interval_spinbox)
+        task_layout.addLayout(interval_layout)
+        
+        task_group.setLayout(task_layout)
+        layout.addWidget(task_group)
+        
+        # 按钮区域
         button_layout = QHBoxLayout()
+        
         self.start_button = QPushButton("开始")
         self.start_button.clicked.connect(self.start_requests)
         button_layout.addWidget(self.start_button)
-
+        
         self.stop_button = QPushButton("停止")
         self.stop_button.clicked.connect(self.stop_requests)
         self.stop_button.setEnabled(False)
         button_layout.addWidget(self.stop_button)
+        
+        self.save_button = QPushButton("保存配置")
+        self.save_button.clicked.connect(self.save_config_values)
+        button_layout.addWidget(self.save_button)
+        
         layout.addLayout(button_layout)
-
+        
         # 进度条
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
-
-        # 分割器
+        
+        # 创建一个垂直分割器
         splitter = QSplitter(Qt.Orientation.Vertical)
-        layout.addWidget(splitter)
-
-        # 结果表格（移到上面）
+        splitter.setChildrenCollapsible(False)  # 防止分割部分被完全折叠
+        layout.addWidget(splitter, 1)  # 添加拉伸因子1
+        
+        # 结果表格区域
         result_group = QGroupBox("结果")
         result_layout = QVBoxLayout()
         
@@ -345,16 +358,34 @@ class MainWindow(QMainWindow):
         
         # 结果表格
         self.result_table = QTableWidget()
-        self.result_table.setColumnCount(5)  # 增加到5列
+        self.result_table.setColumnCount(5)
         self.result_table.setHorizontalHeaderLabels(["ID", "两步验证", "结果", "请求时间", "是否导入任务"])
-        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        
+        # 设置表格列的调整模式
+        header = self.result_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # ID列固定宽度
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # 两步验证列固定宽度
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # 结果列自适应
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # 请求时间列固定宽度
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # 是否导入任务列固定宽度
+        
+        # 设置固定宽度的列的具体宽度
+        self.result_table.setColumnWidth(0, 80)  # ID列
+        self.result_table.setColumnWidth(1, 80)  # 两步验证列
+        self.result_table.setColumnWidth(3, 150)  # 请求时间列
+        self.result_table.setColumnWidth(4, 100)  # 是否导入任务列
+        
+        # 其他表格属性
         self.result_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.result_table.customContextMenuRequested.connect(self.show_context_menu)
+        self.result_table.verticalHeader().setVisible(False)  # 隐藏垂直表头
+        self.result_table.setAlternatingRowColors(True)  # 启用交替行颜色
+        
         result_layout.addWidget(self.result_table)
         result_group.setLayout(result_layout)
         splitter.addWidget(result_group)
-
-        # 日志区域（移到下面）
+        
+        # 日志区域
         log_group = QGroupBox("日志")
         log_layout = QVBoxLayout()
         self.log_area = QTextEdit()
@@ -362,6 +393,10 @@ class MainWindow(QMainWindow):
         log_layout.addWidget(self.log_area)
         log_group.setLayout(log_layout)
         splitter.addWidget(log_group)
+        
+        # 设置分割器的初始大小比例
+        splitter.setStretchFactor(0, 2)  # 表格区域占2
+        splitter.setStretchFactor(1, 1)  # 日志区域占1
 
     def setup_connections(self):
         """设置信号连接"""
