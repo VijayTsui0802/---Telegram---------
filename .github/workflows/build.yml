@@ -7,6 +7,9 @@ on:
     tags:
       - 'v*'  # 当推送v开头的tag时触发
 
+permissions:
+  contents: write  # 添加写入权限
+
 jobs:
   build:
     runs-on: windows-latest  # 使用Windows环境
@@ -31,23 +34,10 @@ jobs:
         
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')  # 只在推送tag时创建Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
+        files: ./dist/gui_main.exe
+        name: Release ${{ github.ref_name }}
+        tag_name: ${{ github.ref_name }}
         draft: false
-        prerelease: false
-        
-    - name: Upload Release Asset
-      if: startsWith(github.ref, 'refs/tags/')  # 只在推送tag时上传Release资产
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/gui_main.exe
-        asset_name: TGCloud.exe
-        asset_content_type: application/octet-stream 
+        prerelease: false 
