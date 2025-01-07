@@ -228,4 +228,79 @@ QTabBar::tab:selected {
 
 QTabBar::tab:hover:!selected {
     background: #ecf0f1;
+}
+
+/* 全局样式 */
+QWidget {
+    font-family: "Microsoft YaHei", "Segoe UI", Arial;
+}
+
+/* 数字调节按钮样式 */
+QSpinBox {
+    padding: 5px;
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    background: white;
+    min-width: 80px;
+}
+
+QSpinBox:hover {
+    border-color: #0078d4;
+}
+
+QSpinBox:focus {
+    border-color: #0078d4;
+    border-width: 2px;
+}
+
+QSpinBox::up-button {
+    width: 20px;
+    border-left: 1px solid #c0c0c0;
+    border-bottom: 1px solid #c0c0c0;
+    border-top-right-radius: 4px;
+    background: #f5f5f5;
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+}
+
+QSpinBox::up-button:hover {
+    background: #e5e5e5;
+}
+
+QSpinBox::up-button:pressed {
+    background: #d0d0d0;
+}
+
+QSpinBox::down-button {
+    width: 20px;
+    border-left: 1px solid #c0c0c0;
+    border-top: 1px solid #c0c0c0;
+    border-bottom-right-radius: 4px;
+    background: #f5f5f5;
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+}
+
+QSpinBox::down-button:hover {
+    background: #e5e5e5;
+}
+
+QSpinBox::down-button:pressed {
+    background: #d0d0d0;
+}
+
+QSpinBox::up-arrow {
+    width: 8px;
+    height: 8px;
+    color: #666;
+}
+
+QSpinBox::down-arrow {
+    width: 8px;
+    height: 8px;
+    color: #666;
+}
+
+QSpinBox::up-arrow:hover, QSpinBox::down-arrow:hover {
+    color: #0078d4;
 } 
