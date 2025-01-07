@@ -4,6 +4,8 @@ import json
 from typing import Dict, Any, Optional, List
 from PyQt6.QtCore import QObject, pyqtSignal
 import re
+from PyQt6.QtWidgets import QTableWidget, QHeaderView
+from PyQt6.QtCore import Qt
 
 class MissionAccountWorker(QObject):
     """Mission Account 请求处理类"""
@@ -228,3 +230,54 @@ class MissionAccountWorker(QObject):
     def stop(self):
         """停止处理"""
         self.is_running = False 
+
+    def setup_ui(self):
+        # 设置表格基本属性
+        self.tableWidget.setAlternatingRowColors(True)  # 启用隔行变色
+        self.tableWidget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # 整行选中
+        self.tableWidget.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # 禁止编辑
+        self.tableWidget.setShowGrid(True)  # 显示网格
+        self.tableWidget.setGridStyle(Qt.PenStyle.SolidLine)  # 实线网格
+        
+        # 设置表格外观
+        self.tableWidget.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                alternate-background-color: #f8f9fa;
+                gridline-color: #e9ecef;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #e9ecef;
+            }
+            QTableWidget::item:selected {
+                background-color: #e3f2fd;
+                color: #2c3e50;
+            }
+        """)
+        
+        # 优化表头
+        header = self.tableWidget.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setStretchLastSection(True)  # 最后一列自适应
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)  # 允许手动调整列宽
+        
+        # 设置垂直表头
+        vertical_header = self.tableWidget.verticalHeader()
+        vertical_header.setDefaultSectionSize(40)  # 设置行高
+        vertical_header.setVisible(False)  # 隐藏行号
+        
+        # 优化列宽
+        self.tableWidget.setColumnWidth(0, 80)   # ID列
+        self.tableWidget.setColumnWidth(1, 120)  # 账号列
+        self.tableWidget.setColumnWidth(2, 120)  # 手机号列
+        self.tableWidget.setColumnWidth(3, 180)  # 状态列
+        
+        # 启用排序
+        self.tableWidget.setSortingEnabled(True)
+        
+        # 设置表格的选择模式
+        self.tableWidget.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)  # 允许多选
+        
+        # 设置表格的焦点策略
+        self.tableWidget.setFocusPolicy(Qt.FocusPolicy.StrongFocus) 

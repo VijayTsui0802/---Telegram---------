@@ -235,12 +235,19 @@ class MainWindow(QMainWindow):
         self.work_thread = None  # 改名为work_thread
         self.config = Config()
         self.is_loading = False
+        
+        # 加载样式表
+        with open("modules/styles.qss", "r", encoding="utf-8") as f:
+            self.setStyleSheet(f.read())
+            
+        # 设置窗口标题和大小
+        self.setWindowTitle("控客 - Telegram云控系统")
+        self.setMinimumSize(1200, 800)
+        
         self.setup_ui()
         self.setup_connections()
         self.load_config_values()
         self.load_history_data()
-        self.setWindowTitle("TG Cloud 请求模拟器")
-        self.resize(1000, 800)
 
     def setup_ui(self):
         """设置UI界面"""
