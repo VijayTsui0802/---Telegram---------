@@ -1,0 +1,30 @@
+{
+  "code": 1,
+  "msg": "成功",
+  "time": "1736231668",
+  "data": {
+    "totalPage": 1,
+    "currentPage": 1,
+    "limit": 10,
+    "data": [
+      {
+        "id": 753211,
+        "mission_id": 1599867,
+        "account_id": 8114563,
+        "status": "finish",
+        "mark": "添加通讯录成功，主任务已完成",
+        "create_time": 1736230821,
+        "update_time": 1736230863,
+        "add_contacts_times": 1,
+        "add_contacts_num": 4,
+        "name": "56985449663",
+        "group_id": 44619,
+        "group_name": "cs",
+        "account_status": "online",
+        "status_text": "Finish",
+        "create_time_text": "2025-01-07 14:20:21",
+        "update_time_text": "2025-01-07 14:21:03"
+      }
+    ]
+  }
+}
