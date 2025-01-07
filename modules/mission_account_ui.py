@@ -130,6 +130,37 @@ class MissionAccountTab(QWidget):
         self.account_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # 整行选择
         self.account_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)  # 单行选择
         self.account_table.setAlternatingRowColors(True)  # 交替行颜色
+        self.account_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # 禁止编辑
+        
+        # 设置表格样式
+        self.account_table.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                alternate-background-color: #f8f9fa;
+                gridline-color: #e9ecef;
+            }
+            QTableWidget::item {
+                padding: 5px;
+                border: none;
+                color: #2c3e50;  /* 默认文字颜色 */
+            }
+            QTableWidget::item:hover {
+                background-color: #f0f7ff;  /* 鼠标悬停时的背景色 */
+                color: #2c3e50;  /* 鼠标悬停时的文字颜色 */
+            }
+            QTableWidget::item:selected {
+                background-color: #e3f2fd;  /* 选中时的背景色 */
+                color: #2c3e50;  /* 选中时的文字颜色 */
+            }
+            QTableWidget::item:selected:hover {
+                background-color: #e3f2fd;  /* 选中并悬停时的背景色 */
+                color: #2c3e50;  /* 选中并悬停时的文字颜色 */
+            }
+            QTableWidget::item:selected:active {
+                background-color: #e3f2fd;  /* 选中并激活时的背景色 */
+                color: #2c3e50;  /* 选中并激活时的文字颜色 */
+            }
+        """)
         
         # 添加表格双击事件
         self.account_table.cellDoubleClicked.connect(self.copy_cell_content)
@@ -275,12 +306,16 @@ class MissionAccountTab(QWidget):
             self.account_table.setItem(row, 1, QTableWidgetItem(str(account['account_id'])))
             self.account_table.setItem(row, 2, QTableWidgetItem(account['name']))
             
-            # 从历史记录中获取两步密码信息
+            # 从历史记录中获取两步密码信息，只显示数字部分
             two_step_password = ""
             if self.config and hasattr(self.config, 'get_history'):
                 history = self.config.get_history(account['account_id'])
                 if history and '设置两步密码' in history['result']:
-                    two_step_password = history['result']
+                    # 使用正则表达式提取数字
+                    import re
+                    match = re.search(r'【(\d+)】', history['result'])
+                    if match:
+                        two_step_password = match.group(1)
             self.account_table.setItem(row, 3, QTableWidgetItem(two_step_password))
             
             self.account_table.setItem(row, 4, QTableWidgetItem(account['group_name']))
@@ -293,6 +328,12 @@ class MissionAccountTab(QWidget):
             self.account_table.setItem(row, 9, QTableWidgetItem(""))
             # 发送时间放在第10列
             self.account_table.setItem(row, 10, QTableWidgetItem(""))
+            
+            # 设置每个单元格为不可编辑
+            for col in range(self.account_table.columnCount()):
+                item = self.account_table.item(row, col)
+                if item:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         
         # 更新页码显示
         self.page_label.setText(f"{self.current_page}/{self.total_pages}")
