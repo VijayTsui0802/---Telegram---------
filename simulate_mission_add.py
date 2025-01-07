@@ -15,7 +15,36 @@ class MissionAddWorker(QObject):
         self.is_running = True
         self.config = config
         self.account_items = ""
+        self.imported_file = Path("imported_accounts.json")
         
+    def load_imported_accounts(self) -> List[str]:
+        """加载已导入的账号列表"""
+        try:
+            if self.imported_file.exists():
+                with open(self.imported_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return data.get('imported_accounts', [])
+            return []
+        except Exception as e:
+            self.log_message.emit(f"读取已导入账号记录时出错: {e}")
+            return []
+            
+    def save_imported_accounts(self, accounts: List[str]):
+        """保存已导入的账号列表"""
+        try:
+            # 加载现有数据
+            imported_accounts = self.load_imported_accounts()
+            # 添加新账号
+            for account in accounts:
+                if account not in imported_accounts:
+                    imported_accounts.append(account)
+            # 保存更新后的数据
+            with open(self.imported_file, 'w', encoding='utf-8') as f:
+                json.dump({'imported_accounts': imported_accounts}, f, ensure_ascii=False, indent=2)
+            self.log_message.emit(f"已更新导入账号记录")
+        except Exception as e:
+            self.log_message.emit(f"保存导入账号记录时出错: {e}")
+
     def get_successful_accounts(self) -> List[str]:
         """从历史记录中获取成功设置两步验证的账号"""
         history_file = Path("request_history.json")
@@ -110,10 +139,13 @@ class MissionAddWorker(QObject):
                     self.log_message.emit("没有找到成功设置两步验证的账号")
                     return None
                     
+                # 获取已导入的账号
+                imported_accounts = self.load_imported_accounts()
+                
                 # 过滤掉已导入的账号
                 unused_accounts = []
                 for account in successful_accounts:
-                    if not self.config.is_imported(account):
+                    if account not in imported_accounts:
                         unused_accounts.append(account)
                 
                 if not unused_accounts:
@@ -134,8 +166,7 @@ class MissionAddWorker(QObject):
             else:
                 self.log_message.emit(f"请求成功: {json.dumps(response, ensure_ascii=False)}")
                 # 标记账号为已导入
-                for account in account_items.split(','):
-                    self.config.mark_as_imported(account)
+                self.save_imported_accounts(account_items.split(','))
                 
             return response
             

@@ -3,7 +3,6 @@ import urllib3
 import json
 from typing import Dict, Any, Optional, List
 from PyQt6.QtCore import QObject, pyqtSignal
-from pathlib import Path
 
 class MissionAccountWorker(QObject):
     """Mission Account 请求处理类"""
@@ -15,33 +14,6 @@ class MissionAccountWorker(QObject):
         super().__init__()
         self.is_running = True
         self.config = config
-        self.data_file = Path("mission_accounts.json")
-        self.saved_data = self.load_saved_data()
-        
-    def load_saved_data(self) -> Dict:
-        """加载已保存的数据"""
-        try:
-            if self.data_file.exists():
-                with open(self.data_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            return {}
-        except Exception as e:
-            self.log_message.emit(f"加载保存数据失败: {e}")
-            return {}
-            
-    def save_data(self, mission_id: int, accounts_data: Dict):
-        """保存任务账号数据"""
-        try:
-            self.saved_data[str(mission_id)] = accounts_data
-            with open(self.data_file, 'w', encoding='utf-8') as f:
-                json.dump(self.saved_data, f, ensure_ascii=False, indent=2)
-            self.log_message.emit(f"已保存任务 {mission_id} 的账号数据")
-        except Exception as e:
-            self.log_message.emit(f"保存数据失败: {e}")
-            
-    def get_saved_accounts(self, mission_id: int) -> Optional[Dict]:
-        """获取已保存的账号数据"""
-        return self.saved_data.get(str(mission_id))
 
     def get_mission_list(self) -> Dict[str, Any]:
         """获取任务列表"""
@@ -144,14 +116,6 @@ class MissionAccountWorker(QObject):
                     break
                     
                 mission_id = mission['id']
-                
-                # 检查是否已有保存的数据
-                saved_accounts = self.get_saved_accounts(mission_id)
-                if saved_accounts:
-                    self.log_message.emit(f"使用已保存的任务 {mission_id} 账号数据")
-                    self.request_finished.emit(saved_accounts)
-                    continue
-                
                 self.log_message.emit(f"正在获取任务 {mission_id} 的账号列表")
                 
                 # 3. 获取任务的所有账号
@@ -187,9 +151,6 @@ class MissionAccountWorker(QObject):
                     
                     # 更新进度
                     self.progress_updated.emit(page, total_pages)
-                
-                # 保存完整数据
-                self.save_data(mission_id, all_accounts_data)
                 
                 # 发送完整数据
                 self.request_finished.emit(all_accounts_data)
