@@ -20,6 +20,7 @@ class MissionAccountTab(QWidget):
         self.page_size = 10
         self.current_page = 1
         self.total_pages = 1
+        self.all_accounts = []  # 存储所有账号数据
         self.init_ui()
         
     def init_ui(self):
@@ -53,32 +54,6 @@ class MissionAccountTab(QWidget):
         
         layout.addLayout(button_layout)
         
-        # 分页控制
-        page_control_layout = QHBoxLayout()
-        
-        # 每页显示数量
-        page_size_layout = QHBoxLayout()
-        page_size_layout.addWidget(QLabel("每页显示:"))
-        self.page_size_combo = QComboBox()
-        self.page_size_combo.addItems(['10', '20', '50', '100'])
-        self.page_size_combo.currentTextChanged.connect(self.on_page_size_changed)
-        page_size_layout.addWidget(self.page_size_combo)
-        page_control_layout.addLayout(page_size_layout)
-        
-        # 页码控制
-        self.prev_page_btn = QPushButton("上一页")
-        self.prev_page_btn.clicked.connect(self.prev_page)
-        page_control_layout.addWidget(self.prev_page_btn)
-        
-        self.page_label = QLabel("1/1")
-        page_control_layout.addWidget(self.page_label)
-        
-        self.next_page_btn = QPushButton("下一页")
-        self.next_page_btn.clicked.connect(self.next_page)
-        page_control_layout.addWidget(self.next_page_btn)
-        
-        layout.addLayout(page_control_layout)
-        
         # 进度区域
         progress_group = QGroupBox("进度")
         progress_layout = QVBoxLayout()
@@ -107,6 +82,32 @@ class MissionAccountTab(QWidget):
         ])
         self.account_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         result_layout.addWidget(self.account_table)
+        
+        # 分页控制（移到表格下方）
+        page_control_layout = QHBoxLayout()
+        
+        # 每页显示数量
+        page_size_layout = QHBoxLayout()
+        page_size_layout.addWidget(QLabel("每页显示:"))
+        self.page_size_combo = QComboBox()
+        self.page_size_combo.addItems(['10', '20', '50', '100'])
+        self.page_size_combo.currentTextChanged.connect(self.on_page_size_changed)
+        page_size_layout.addWidget(self.page_size_combo)
+        page_control_layout.addLayout(page_size_layout)
+        
+        # 页码控制
+        self.prev_page_btn = QPushButton("上一页")
+        self.prev_page_btn.clicked.connect(self.prev_page)
+        page_control_layout.addWidget(self.prev_page_btn)
+        
+        self.page_label = QLabel("1/1")
+        page_control_layout.addWidget(self.page_label)
+        
+        self.next_page_btn = QPushButton("下一页")
+        self.next_page_btn.clicked.connect(self.next_page)
+        page_control_layout.addWidget(self.next_page_btn)
+        
+        result_layout.addLayout(page_control_layout)
         result_group.setLayout(result_layout)
         layout.addWidget(result_group)
         
@@ -139,13 +140,10 @@ class MissionAccountTab(QWidget):
             
     def update_verification_codes(self):
         """更新验证码"""
-        if not self.is_getting_codes:
+        if not self.is_getting_codes or not self.worker:
             return
             
         # 获取当前页的所有账号ID
-        start_idx = (self.current_page - 1) * self.page_size
-        end_idx = start_idx + self.page_size
-        
         for row in range(self.account_table.rowCount()):
             account_id_item = self.account_table.item(row, 1)  # 账号ID列
             if account_id_item:
@@ -167,6 +165,7 @@ class MissionAccountTab(QWidget):
         """处理每页显示数量变化"""
         self.page_size = int(value)
         self.current_page = 1
+        self.total_pages = (len(self.all_accounts) + self.page_size - 1) // self.page_size
         self.update_table_display()
         
     def prev_page(self):
@@ -183,9 +182,29 @@ class MissionAccountTab(QWidget):
             
     def update_table_display(self):
         """更新表格显示"""
+        # 清空表格
+        self.account_table.setRowCount(0)
+        
         # 计算当前页要显示的数据范围
         start_idx = (self.current_page - 1) * self.page_size
-        end_idx = start_idx + self.page_size
+        end_idx = min(start_idx + self.page_size, len(self.all_accounts))
+        
+        # 显示当前页的数据
+        for account in self.all_accounts[start_idx:end_idx]:
+            row = self.account_table.rowCount()
+            self.account_table.insertRow(row)
+            
+            # 设置单元格数据
+            self.account_table.setItem(row, 0, QTableWidgetItem(str(account['mission_id'])))
+            self.account_table.setItem(row, 1, QTableWidgetItem(str(account['account_id'])))
+            self.account_table.setItem(row, 2, QTableWidgetItem(account['name']))
+            self.account_table.setItem(row, 3, QTableWidgetItem(account['group_name']))
+            self.account_table.setItem(row, 4, QTableWidgetItem(account['status_text']))
+            self.account_table.setItem(row, 5, QTableWidgetItem(str(account['add_contacts_times'])))
+            self.account_table.setItem(row, 6, QTableWidgetItem(str(account['add_contacts_num'])))
+            self.account_table.setItem(row, 7, QTableWidgetItem(account['update_time_text']))
+            self.account_table.setItem(row, 8, QTableWidgetItem(""))  # 验证码列
+            self.account_table.setItem(row, 9, QTableWidgetItem(""))  # 发送时间列
         
         # 更新页码显示
         self.page_label.setText(f"{self.current_page}/{self.total_pages}")
@@ -216,32 +235,9 @@ class MissionAccountTab(QWidget):
             
         # 更新账号表格
         if 'data' in response and 'data' in response['data']:
-            accounts = response['data']['data']
-            self.total_pages = (len(accounts) + self.page_size - 1) // self.page_size
-            
-            # 清空表格
-            self.account_table.setRowCount(0)
-            
-            # 只显示当前页的数据
-            start_idx = (self.current_page - 1) * self.page_size
-            end_idx = min(start_idx + self.page_size, len(accounts))
-            
-            for account in accounts[start_idx:end_idx]:
-                row = self.account_table.rowCount()
-                self.account_table.insertRow(row)
-                
-                # 设置单元格数据
-                self.account_table.setItem(row, 0, QTableWidgetItem(str(account['mission_id'])))
-                self.account_table.setItem(row, 1, QTableWidgetItem(str(account['account_id'])))
-                self.account_table.setItem(row, 2, QTableWidgetItem(account['name']))
-                self.account_table.setItem(row, 3, QTableWidgetItem(account['group_name']))
-                self.account_table.setItem(row, 4, QTableWidgetItem(account['status_text']))
-                self.account_table.setItem(row, 5, QTableWidgetItem(str(account['add_contacts_times'])))
-                self.account_table.setItem(row, 6, QTableWidgetItem(str(account['add_contacts_num'])))
-                self.account_table.setItem(row, 7, QTableWidgetItem(account['update_time_text']))
-                self.account_table.setItem(row, 8, QTableWidgetItem(""))  # 验证码列
-                self.account_table.setItem(row, 9, QTableWidgetItem(""))  # 发送时间列
-            
+            self.all_accounts = response['data']['data']
+            self.total_pages = (len(self.all_accounts) + self.page_size - 1) // self.page_size
+            self.current_page = 1
             self.update_table_display()
         
     def refresh_data(self):
@@ -259,6 +255,10 @@ class MissionAccountTab(QWidget):
         try:
             # 清空表格
             self.account_table.setRowCount(0)
+            self.all_accounts = []
+            self.total_pages = 1
+            self.current_page = 1
+            self.update_table_display()
             
             # 删除缓存文件
             if self.worker and self.worker.data_file.exists():
@@ -273,6 +273,7 @@ class MissionAccountTab(QWidget):
         """开始处理"""
         # 清空表格
         self.account_table.setRowCount(0)
+        self.all_accounts = []
         
         # 更新按钮状态
         self.start_button.setEnabled(False)
