@@ -239,36 +239,19 @@ class MainWindow(QMainWindow):
         self.config = Config()
         self.is_loading = False
         
-        # 设置窗口图标（支持SVG）
-        icon = QIcon()
-        renderer = QSvgRenderer("assets/logo.svg")
-        
-        # 创建不同尺寸的图标以确保在不同场景下的显示效果
-        for size in [16, 24, 32, 48, 64, 128, 256]:
-            pixmap = QPixmap(size, size)
-            pixmap.fill(Qt.GlobalColor.transparent)  # 设置透明背景
-            painter = QPainter(pixmap)
-            # 设置抗锯齿
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            # 渲染SVG
-            renderer.render(painter)
-            painter.end()
-            # 添加到图标
-            icon.addPixmap(pixmap)
-        
         # 设置窗口图标
+        icon = QIcon("assets/logo.ico")
         self.setWindowIcon(icon)
-        app = QApplication.instance()
-        if app:
-            app.setWindowIcon(icon)  # 设置应用程序图标
+        # 设置任务栏图标
+        if hasattr(self, "setWindowIcon"):
+            self.setWindowIcon(icon)
         
         # 加载样式表
         with open("modules/styles.qss", "r", encoding="utf-8") as f:
             self.setStyleSheet(f.read())
             
         # 设置窗口标题和大小
-        self.setWindowTitle("控客 - Telegram云控系统")
+        self.setWindowTitle("TGCloud - Telegram云控系统")
         self.setMinimumSize(1200, 800)
         
         self.setup_ui()
