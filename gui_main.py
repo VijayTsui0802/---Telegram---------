@@ -243,8 +243,9 @@ class MainWindow(QMainWindow):
         icon = QIcon("assets/logo.ico")
         self.setWindowIcon(icon)
         # 设置任务栏图标
-        if hasattr(self, "setWindowIcon"):
-            self.setWindowIcon(icon)
+        app = QApplication.instance()
+        if app:
+            app.setWindowIcon(icon)
         
         # 加载样式表
         with open("modules/styles.qss", "r", encoding="utf-8") as f:

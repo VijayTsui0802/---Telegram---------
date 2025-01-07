@@ -461,8 +461,14 @@ class MissionAccountTab(QWidget):
 
     def copy_cell_content(self, row, column):
         """双击单元格复制内容到剪贴板"""
-        if column in [3, 9]:  # 两步密码和验证码列
+        if column in [2, 3, 9]:  # 账号名称、两步密码和验证码列
             item = self.account_table.item(row, column)
             if item and item.text():
                 QApplication.clipboard().setText(item.text())
-                self.log_message(f"已复制到剪贴板: {item.text()}") 
+                # 根据列类型显示不同的提示信息
+                content_type = {
+                    2: "账号名称",
+                    3: "两步密码",
+                    9: "验证码"
+                }.get(column, "内容")
+                self.log_message(f"已复制{content_type}到剪贴板: {item.text()}") 
