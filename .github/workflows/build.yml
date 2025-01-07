@@ -23,11 +23,33 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller pillow
+        pip install pyinstaller pillow cairosvg
+        
+    - name: Convert SVG to ICO
+      run: |
+        python -c "
+        from PIL import Image
+        import cairosvg
+        import io
+        
+        # 转换SVG为PNG
+        png_data = cairosvg.svg2png(url='assets/logo.svg')
+        png_image = Image.open(io.BytesIO(png_data))
+        
+        # 创建不同尺寸的图标
+        sizes = [(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)]
+        icons = []
+        for size in sizes:
+            icon = png_image.resize(size, Image.Resampling.LANCZOS)
+            icons.append(icon)
+            
+        # 保存为ICO文件
+        icons[0].save('assets/logo.ico', format='ICO', sizes=[(icon.width, icon.height) for icon in icons], append_images=icons[1:])
+        "
         
     - name: Build with PyInstaller
       run: |
-        pyinstaller --noconfirm --onefile --windowed --icon "assets/logo.svg" --add-data "modules;modules/" --add-data "assets;assets/" gui_main.py
+        pyinstaller --noconfirm --onefile --windowed --icon "assets/logo.ico" --add-data "modules;modules/" --add-data "assets;assets/" gui_main.py
         
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')  # 只在推送tag时创建Release
