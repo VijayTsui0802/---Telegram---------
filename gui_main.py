@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QHeaderView, QMenu, QTabWidget, QComboBox
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QObject
 from modules import MissionAccountTab, ConfigTab, MissionAddTab
 
 class Config:
@@ -148,7 +149,7 @@ class Config:
         except Exception as e:
             print(f"设置配置失败 [{section}][{key}]: {str(e)}")
 
-class RequestWorker(QThread):
+class RequestWorker(QObject):
     """请求处理线程"""
     request_finished = pyqtSignal(dict)  # 请求完成信号
     progress_updated = pyqtSignal(int)   # 进度更新信号
@@ -403,12 +404,18 @@ class MainWindow(QMainWindow):
 
     def start_requests(self):
         """开始请求"""
+        self.append_log("开始执行请求...")
+        
         if not self.validate_inputs():
+            self.append_log("输入验证失败")
             return
 
         # 获取认证配置
         auth_config = self.config_tab.get_auth_config()
+        self.append_log(f"获取认证配置: {auth_config}")
+        
         if not auth_config['cookie'] or not auth_config['token']:
+            self.append_log("错误: Cookie或Token未设置")
             QMessageBox.warning(self, "错误", "请在配置标签页中设置Cookie和Token")
             return
 
@@ -418,6 +425,7 @@ class MainWindow(QMainWindow):
         # 加载已有的历史记录到表格
         start_id = self.start_id_spinbox.value()
         end_id = self.end_id_spinbox.value()
+        self.append_log(f"设置ID范围: {start_id} - {end_id}")
         
         for id in range(start_id, end_id + 1):
             history = self.config.get_history(id)
@@ -438,6 +446,8 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(True)
         self.progress_bar.setValue(0)
 
+        # 创建工作线程和worker
+        self.work_thread = QThread()
         self.worker = RequestWorker(
             start_id,
             end_id,
@@ -446,23 +456,30 @@ class MainWindow(QMainWindow):
             auth_config['token'],
             self.config.history
         )
-
-        self.work_thread = QThread()
+        
+        # 将worker移动到工作线程
         self.worker.moveToThread(self.work_thread)
-
+        
+        # 连接信号
         self.worker.request_finished.connect(self.handle_request_finished)
         self.worker.progress_updated.connect(self.progress_bar.setValue)
         self.worker.log_message.connect(self.append_log)
         self.work_thread.finished.connect(self.handle_worker_finished)
-
+        self.work_thread.started.connect(self.worker.run)
+        
+        # 启动线程
         self.work_thread.start()
+        self.append_log("工作线程已启动")
 
     def validate_inputs(self):
         """验证输入"""
+        self.append_log("正在验证输入...")
         if self.start_id_spinbox.value() > self.end_id_spinbox.value():
+            self.append_log(f"验证失败: 起始ID({self.start_id_spinbox.value()})大于结束ID({self.end_id_spinbox.value()})")
             QMessageBox.warning(self, "错误", "起始ID不能大于结束ID")
             return False
-
+        
+        self.append_log("输入验证通过")
         return True
 
     def stop_requests(self):
