@@ -3,17 +3,83 @@ import urllib3
 import json
 from typing import Dict, Any, Optional, List
 from PyQt6.QtCore import QObject, pyqtSignal
+import re
 
 class MissionAccountWorker(QObject):
     """Mission Account 请求处理类"""
     request_finished = pyqtSignal(dict)  # 请求完成信号
     log_message = pyqtSignal(str)  # 日志信息信号
     progress_updated = pyqtSignal(int, int)  # 进度更新信号
+    code_updated = pyqtSignal(str, str, int)  # 验证码更新信号 (account_id, code, send_time)
     
     def __init__(self, config=None):
         super().__init__()
         self.is_running = True
         self.config = config
+        
+    def get_verification_code(self, account_id: str):
+        """获取账号的验证码"""
+        url = "http://konk.cc/tgcloud/account_operate/update_data"
+        
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,th;q=0.8,zh-TW;q=0.7",
+            "Connection": "keep-alive",
+            "Content-Type": "application/json",
+            "Cookie": f"PHPSESSID={self.config.get('Auth', 'cookie')}",
+            "Origin": "http://konk.cc",
+            "Referer": "http://konk.cc/tgcloud_pc/?",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "X-KL-Ajax-Request": "Ajax_Request",
+            "token": self.config.get('Auth', 'token')
+        }
+        
+        data = {
+            "account_update_time": 0,
+            "account_id": account_id,
+            "conversation_update_time": 1
+        }
+        
+        try:
+            # 禁用SSL验证警告
+            urllib3.disable_warnings()
+            
+            # 发送POST请求
+            response = requests.post(
+                url, 
+                headers=headers, 
+                json=data,
+                verify=False
+            )
+            
+            # 解析响应
+            response_data = response.json()
+            
+            if response_data.get('code') == 1 and 'data' in response_data:
+                conversation_list = response_data['data'].get('conversation_list', {})
+                if 'new_data' in conversation_list and conversation_list['new_data']:
+                    for conversation in conversation_list['new_data']:
+                        near_msg = conversation.get('near_msg', '')
+                        if near_msg:
+                            # 解析JSON字符串
+                            try:
+                                msg_data = json.loads(near_msg)
+                                message_text = msg_data.get('message', '')
+                                
+                                # 提取验证码
+                                code_match = re.search(r'Login code: (\d+)', message_text)
+                                if code_match:
+                                    code = code_match.group(1)
+                                    send_time = conversation.get('updatetime', 0)
+                                    self.code_updated.emit(account_id, code, send_time)
+                                    return
+                            except json.JSONDecodeError:
+                                continue
+                
+            self.log_message.emit(f"未找到账号 {account_id} 的验证码")
+            
+        except Exception as e:
+            self.log_message.emit(f"获取验证码失败: {e}")
 
     def get_mission_list(self) -> Dict[str, Any]:
         """获取任务列表"""
