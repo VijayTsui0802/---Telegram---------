@@ -37,7 +37,11 @@ jobs:
         echo '    ],' >> build.spec
         echo '    pathex=[],' >> build.spec
         echo '    binaries=[],' >> build.spec
-        echo '    datas=[("modules", "modules"), ("assets", "assets")],' >> build.spec
+        echo '    datas=[' >> build.spec
+        echo '        ("modules/styles.qss", "modules"),' >> build.spec
+        echo '        ("modules/*.py", "modules"),' >> build.spec
+        echo '        ("assets/*", "assets"),' >> build.spec
+        echo '    ],' >> build.spec
         echo '    hiddenimports=[],' >> build.spec
         echo '    hookspath=[],' >> build.spec
         echo '    hooksconfig={},' >> build.spec
