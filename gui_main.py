@@ -12,6 +12,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtCore import QObject
+from PyQt6.QtGui import QIcon, QPixmap, QPainter
+from PyQt6.QtSvg import QSvgRenderer
+from PyQt6.QtCore import QSize
 from modules import MissionAccountTab, ConfigTab, MissionAddTab
 
 class Config:
@@ -232,9 +235,33 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.worker = None
-        self.work_thread = None  # 改名为work_thread
+        self.work_thread = None
         self.config = Config()
         self.is_loading = False
+        
+        # 设置窗口图标（支持SVG）
+        icon = QIcon()
+        renderer = QSvgRenderer("assets/logo.svg")
+        
+        # 创建不同尺寸的图标以确保在不同场景下的显示效果
+        for size in [16, 24, 32, 48, 64, 128, 256]:
+            pixmap = QPixmap(size, size)
+            pixmap.fill(Qt.GlobalColor.transparent)  # 设置透明背景
+            painter = QPainter(pixmap)
+            # 设置抗锯齿
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            # 渲染SVG
+            renderer.render(painter)
+            painter.end()
+            # 添加到图标
+            icon.addPixmap(pixmap)
+        
+        # 设置窗口图标
+        self.setWindowIcon(icon)
+        app = QApplication.instance()
+        if app:
+            app.setWindowIcon(icon)  # 设置应用程序图标
         
         # 加载样式表
         with open("modules/styles.qss", "r", encoding="utf-8") as f:
