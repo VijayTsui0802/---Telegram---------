@@ -254,15 +254,15 @@ class MainWindow(QMainWindow):
         # 添加原有功能标签页
         self.main_tab = QWidget()
         self.setup_main_tab()
-        self.tab_widget.addTab(self.main_tab, "账号任务")
+        self.tab_widget.addTab(self.main_tab, "账号采集")
         
         # 添加新的Mission Account标签页
         self.mission_account_tab = MissionAccountTab(config=self.config)
-        self.tab_widget.addTab(self.mission_account_tab, "账号提取")
+        self.tab_widget.addTab(self.mission_account_tab, "在线接码")
         
         # 添加新的Mission Add标签页
         self.mission_add_tab = MissionAddTab(config=self.config)
-        self.tab_widget.addTab(self.mission_add_tab, "创建任务")
+        self.tab_widget.addTab(self.mission_add_tab, "数据筛选")
         
         # 添加配置标签页（移到最后）
         self.config_tab = ConfigTab(self.config)
