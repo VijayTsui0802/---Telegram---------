@@ -4,12 +4,35 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
     QSpinBox, QComboBox
 )
-from PyQt6.QtCore import Qt, QThread, QTimer
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from datetime import datetime
 from .mission_account import MissionAccountWorker
 
+class CodeWorker(QThread):
+    """验证码获取工作线程"""
+    code_updated = pyqtSignal(str, str, int)  # 验证码更新信号 (account_id, code, send_time)
+    log_message = pyqtSignal(str)  # 日志信息信号
+    
+    def __init__(self, config, account_id):
+        super().__init__()
+        self.config = config
+        self.account_id = account_id
+        self.worker = MissionAccountWorker(config=config)
+        # 连接worker的信号到本类的信号
+        self.worker.code_updated.connect(self.code_updated)
+        self.worker.log_message.connect(self.log_message)
+        
+    def run(self):
+        """运行线程"""
+        try:
+            self.worker.get_verification_code(self.account_id)
+        except Exception as e:
+            self.log_message.emit(f"获取验证码出错: {e}")
+
 class MissionAccountTab(QWidget):
     """Mission Account 标签页"""
+    log_message_signal = pyqtSignal(str)  # 重命名信号
+    
     def __init__(self, config=None):
         super().__init__()
         self.worker = None
@@ -21,6 +44,8 @@ class MissionAccountTab(QWidget):
         self.current_page = 1
         self.total_pages = 1
         self.all_accounts = []  # 存储所有账号数据
+        self.code_workers = []  # 存储验证码获取线程
+        self.log_message_signal.connect(self.append_log)  # 连接信号到日志追加方法
         self.init_ui()
         
     def init_ui(self):
@@ -137,19 +162,35 @@ class MissionAccountTab(QWidget):
             self.is_getting_codes = False
             self.code_button.setText("开始获取验证码")
             self.code_timer.stop()
+            # 停止所有验证码获取线程
+            for worker in self.code_workers:
+                worker.quit()
+                worker.wait()
+            self.code_workers.clear()
             
     def update_verification_codes(self):
         """更新验证码"""
-        if not self.is_getting_codes or not self.worker:
+        if not self.is_getting_codes:
             return
+            
+        # 清理已完成的线程
+        self.code_workers = [w for w in self.code_workers if not w.isFinished()]
             
         # 获取当前页的所有账号ID
         for row in range(self.account_table.rowCount()):
             account_id_item = self.account_table.item(row, 1)  # 账号ID列
             if account_id_item:
                 account_id = account_id_item.text()
-                self.worker.get_verification_code(account_id)
-                
+                # 检查是否已经有该账号的线程在运行
+                if not any(w.account_id == account_id for w in self.code_workers):
+                    # 创建新的工作线程
+                    worker = CodeWorker(self.config, account_id)
+                    worker.code_updated.connect(self.update_code_and_time)
+                    worker.log_message.connect(self.log_message)
+                    worker.start()
+                    self.code_workers.append(worker)
+                    self.log_message_signal.emit(f"开始获取账号 {account_id} 的验证码")
+                    
     def update_code_and_time(self, account_id: str, code: str, send_time: int):
         """更新指定账号的验证码和发送时间"""
         for row in range(self.account_table.rowCount()):
@@ -159,6 +200,7 @@ class MissionAccountTab(QWidget):
                 # 更新发送时间
                 time_str = datetime.fromtimestamp(send_time).strftime('%Y-%m-%d %H:%M:%S')
                 self.account_table.setItem(row, 9, QTableWidgetItem(time_str))
+                self.log_message_signal.emit(f"账号 {account_id} 的验证码已更新: {code}")
                 break
                 
     def on_page_size_changed(self, value):
@@ -214,7 +256,11 @@ class MissionAccountTab(QWidget):
         self.next_page_btn.setEnabled(self.current_page < self.total_pages)
         
     def log_message(self, message: str):
-        """添加日志消息"""
+        """发送日志消息"""
+        self.log_message_signal.emit(message)
+        
+    def append_log(self, message: str):
+        """添加日志消息到文本框"""
         self.log_area.append(message)
         # 滚动到底部
         self.log_area.verticalScrollBar().setValue(
@@ -312,6 +358,12 @@ class MissionAccountTab(QWidget):
         self.stop_button.setEnabled(False)
         self.refresh_button.setEnabled(True)
         self.clear_button.setEnabled(True)
+        
+        # 停止所有验证码获取线程
+        for worker in self.code_workers:
+            worker.quit()
+            worker.wait()
+        self.code_workers.clear()
         
         if self.work_thread and self.work_thread.isRunning():
             self.work_thread.quit()

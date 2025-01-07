@@ -36,7 +36,7 @@ class MissionAccountWorker(QObject):
         
         data = {
             "account_update_time": 0,
-            "account_id": account_id,
+            "account_id": int(account_id),
             "conversation_update_time": 1
         }
         
@@ -72,6 +72,7 @@ class MissionAccountWorker(QObject):
                                     code = code_match.group(1)
                                     send_time = conversation.get('updatetime', 0)
                                     self.code_updated.emit(account_id, code, send_time)
+                                    self.log_message.emit(f"获取到账号 {account_id} 的验证码: {code}")
                                     return
                             except json.JSONDecodeError:
                                 continue
