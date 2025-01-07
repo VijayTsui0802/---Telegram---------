@@ -28,9 +28,52 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
         
+    - name: Create spec file
+      run: |
+        echo 'import os' > build.spec
+        echo 'block_cipher = None' >> build.spec
+        echo 'a = Analysis([' >> build.spec
+        echo '    "gui_main.py",' >> build.spec
+        echo '    ],' >> build.spec
+        echo '    pathex=[],' >> build.spec
+        echo '    binaries=[],' >> build.spec
+        echo '    datas=[("modules", "modules"), ("assets", "assets")],' >> build.spec
+        echo '    hiddenimports=[],' >> build.spec
+        echo '    hookspath=[],' >> build.spec
+        echo '    hooksconfig={},' >> build.spec
+        echo '    runtime_hooks=[],' >> build.spec
+        echo '    excludes=[],' >> build.spec
+        echo '    win_no_prefer_redirects=False,' >> build.spec
+        echo '    win_private_assemblies=False,' >> build.spec
+        echo '    cipher=block_cipher,' >> build.spec
+        echo '    noarchive=False,' >> build.spec
+        echo ')' >> build.spec
+        echo 'pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)' >> build.spec
+        echo 'exe = EXE(' >> build.spec
+        echo '    pyz,' >> build.spec
+        echo '    a.scripts,' >> build.spec
+        echo '    a.binaries,' >> build.spec
+        echo '    a.zipfiles,' >> build.spec
+        echo '    a.datas,' >> build.spec
+        echo '    [],' >> build.spec
+        echo '    name="gui_main",' >> build.spec
+        echo '    debug=False,' >> build.spec
+        echo '    bootloader_ignore_signals=False,' >> build.spec
+        echo '    strip=False,' >> build.spec
+        echo '    upx=True,' >> build.spec
+        echo '    upx_exclude=[],' >> build.spec
+        echo '    runtime_tmpdir=None,' >> build.spec
+        echo '    console=False,' >> build.spec
+        echo '    disable_windowed_traceback=False,' >> build.spec
+        echo '    target_arch=None,' >> build.spec
+        echo '    codesign_identity=None,' >> build.spec
+        echo '    entitlements_file=None,' >> build.spec
+        echo '    icon="assets/logo.ico"' >> build.spec
+        echo ')' >> build.spec
+        
     - name: Build with PyInstaller
       run: |
-        pyinstaller --noconfirm --onefile --windowed --icon "assets/logo.ico" --add-data "modules;modules/" --add-data "assets;assets/" gui_main.py
+        pyinstaller build.spec
         
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')  # 只在推送tag时创建Release
