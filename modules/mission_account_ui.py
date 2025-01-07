@@ -100,12 +100,32 @@ class MissionAccountTab(QWidget):
         result_layout = QVBoxLayout()
         
         self.account_table = QTableWidget()
-        self.account_table.setColumnCount(10)  # 增加了验证码和发送时间列
+        self.account_table.setColumnCount(11)  # 增加列数为11
         self.account_table.setHorizontalHeaderLabels([
-            "任务ID", "账号ID", "账号名称", "分组", "状态", 
+            "任务ID", "账号ID", "账号名称", "两步密码", "分组", "状态", 
             "添加次数", "添加数量", "更新时间", "验证码", "发送时间"
         ])
-        self.account_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        
+        # 设置表格列宽
+        self.account_table.setColumnWidth(0, 80)   # 任务ID
+        self.account_table.setColumnWidth(1, 80)   # 账号ID
+        self.account_table.setColumnWidth(2, 120)  # 账号名称
+        self.account_table.setColumnWidth(3, 200)  # 两步密码
+        self.account_table.setColumnWidth(4, 100)  # 分组
+        self.account_table.setColumnWidth(5, 100)  # 状态
+        self.account_table.setColumnWidth(6, 80)   # 添加次数
+        self.account_table.setColumnWidth(7, 80)   # 添加数量
+        self.account_table.setColumnWidth(8, 150)  # 更新时间
+        self.account_table.setColumnWidth(9, 100)  # 验证码
+        self.account_table.setColumnWidth(10, 150) # 发送时间
+        
+        # 设置表格其他属性
+        self.account_table.horizontalHeader().setStretchLastSection(True)  # 最后一列自适应
+        self.account_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)  # 允许手动调整列宽
+        self.account_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # 整行选择
+        self.account_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)  # 单行选择
+        self.account_table.setAlternatingRowColors(True)  # 交替行颜色
+        
         result_layout.addWidget(self.account_table)
         
         # 分页控制（移到表格下方）
@@ -240,13 +260,22 @@ class MissionAccountTab(QWidget):
             self.account_table.setItem(row, 0, QTableWidgetItem(str(account['mission_id'])))
             self.account_table.setItem(row, 1, QTableWidgetItem(str(account['account_id'])))
             self.account_table.setItem(row, 2, QTableWidgetItem(account['name']))
-            self.account_table.setItem(row, 3, QTableWidgetItem(account['group_name']))
-            self.account_table.setItem(row, 4, QTableWidgetItem(account['status_text']))
-            self.account_table.setItem(row, 5, QTableWidgetItem(str(account['add_contacts_times'])))
-            self.account_table.setItem(row, 6, QTableWidgetItem(str(account['add_contacts_num'])))
-            self.account_table.setItem(row, 7, QTableWidgetItem(account['update_time_text']))
-            self.account_table.setItem(row, 8, QTableWidgetItem(""))  # 验证码列
-            self.account_table.setItem(row, 9, QTableWidgetItem(""))  # 发送时间列
+            
+            # 从历史记录中获取两步密码信息
+            two_step_password = ""
+            if self.config and hasattr(self.config, 'get_history'):
+                history = self.config.get_history(account['account_id'])
+                if history and '设置两步密码' in history['result']:
+                    two_step_password = history['result']
+            self.account_table.setItem(row, 3, QTableWidgetItem(two_step_password))
+            
+            self.account_table.setItem(row, 4, QTableWidgetItem(account['group_name']))
+            self.account_table.setItem(row, 5, QTableWidgetItem(account['status_text']))
+            self.account_table.setItem(row, 6, QTableWidgetItem(str(account['add_contacts_times'])))
+            self.account_table.setItem(row, 7, QTableWidgetItem(str(account['add_contacts_num'])))
+            self.account_table.setItem(row, 8, QTableWidgetItem(account['update_time_text']))
+            self.account_table.setItem(row, 9, QTableWidgetItem(""))  # 验证码列
+            self.account_table.setItem(row, 10, QTableWidgetItem(""))  # 发送时间列
         
         # 更新页码显示
         self.page_label.setText(f"{self.current_page}/{self.total_pages}")
