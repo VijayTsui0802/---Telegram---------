@@ -42,3 +42,31 @@ python gui_main.py
 - 使用前请确保config.ini中的认证信息正确
 - 建议定期清理缓存数据
 - 获取验证码时请勿频繁操作，建议等待系统自动刷新 
+
+## 版本更新步骤
+1. 更新代码和文档
+   - 修改相关代码文件
+   - 更新 README.md 中的版本历史
+   - 更新 requirements.txt（如有依赖变更）
+
+2. 提交更改
+   ```bash
+   git add .
+   git commit -m "vX.X.X 版本更新：更新内容描述"
+   ```
+
+3. 创建版本标签
+   ```bash
+   git tag -a vX.X.X -m "版本X.X.X发布：版本说明"
+   ```
+
+4. 推送到远程仓库
+   ```bash
+   git push origin main
+   git push origin vX.X.X
+   ```
+
+5. 确认更新
+   - 在 GitHub 仓库检查代码更新
+   - 确认版本标签创建成功
+   - 检查文档更新是否正确 
