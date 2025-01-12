@@ -28,6 +28,11 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
         
+    - name: Verify assets directory
+      run: |
+        if not exist "assets" mkdir assets
+        if not exist "assets\logo.ico" echo "Error: logo.ico not found" && exit 1
+        
     - name: Create spec file
       run: |
         echo 'import os' > build.spec
@@ -40,7 +45,8 @@ jobs:
         echo '    datas=[' >> build.spec
         echo '        ("modules/styles.qss", "modules"),' >> build.spec
         echo '        ("modules/*.py", "modules"),' >> build.spec
-        echo '        ("assets/*", "assets"),' >> build.spec
+        echo '        ("assets/logo.ico", "assets"),' >> build.spec
+        echo '        ("assets/logo.svg", "assets"),' >> build.spec
         echo '    ],' >> build.spec
         echo '    hiddenimports=[],' >> build.spec
         echo '    hookspath=[],' >> build.spec
@@ -60,7 +66,7 @@ jobs:
         echo '    a.zipfiles,' >> build.spec
         echo '    a.datas,' >> build.spec
         echo '    [],' >> build.spec
-        echo '    name="gui_main",' >> build.spec
+        echo '    name="TGCloud",' >> build.spec
         echo '    debug=False,' >> build.spec
         echo '    bootloader_ignore_signals=False,' >> build.spec
         echo '    strip=False,' >> build.spec
@@ -72,7 +78,7 @@ jobs:
         echo '    target_arch=None,' >> build.spec
         echo '    codesign_identity=None,' >> build.spec
         echo '    entitlements_file=None,' >> build.spec
-        echo '    icon="assets/logo.ico"' >> build.spec
+        echo '    icon=os.path.join("assets", "logo.ico")' >> build.spec
         echo ')' >> build.spec
         
     - name: Build with PyInstaller
@@ -83,7 +89,7 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')  # 只在推送tag时创建Release
       uses: softprops/action-gh-release@v1
       with:
-        files: ./dist/gui_main.exe
+        files: ./dist/TGCloud.exe
         name: Release ${{ github.ref_name }}
         tag_name: ${{ github.ref_name }}
         draft: false

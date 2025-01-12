@@ -302,6 +302,8 @@ class MainWindow(QMainWindow):
         self.start_id_spinbox = QSpinBox()
         self.start_id_spinbox.setRange(0, 999999999)
         self.start_id_spinbox.setValue(11312122)
+        self.start_id_spinbox.setMinimumWidth(150)  # 设置最小宽度
+        self.start_id_spinbox.setFixedWidth(150)    # 设置固定宽度
         start_id_layout.addWidget(self.start_id_spinbox)
         task_layout.addLayout(start_id_layout)
         
@@ -311,6 +313,8 @@ class MainWindow(QMainWindow):
         self.end_id_spinbox = QSpinBox()
         self.end_id_spinbox.setRange(0, 999999999)
         self.end_id_spinbox.setValue(11312122)
+        self.end_id_spinbox.setMinimumWidth(150)    # 设置最小宽度
+        self.end_id_spinbox.setFixedWidth(150)      # 设置固定宽度
         end_id_layout.addWidget(self.end_id_spinbox)
         task_layout.addLayout(end_id_layout)
         
