@@ -30,8 +30,13 @@ jobs:
         
     - name: Verify assets directory
       run: |
-        if not exist "assets" mkdir assets
-        if not exist "assets\logo.ico" echo "Error: logo.ico not found" && exit 1
+        if (-not (Test-Path "assets")) {
+            New-Item -ItemType Directory -Path "assets"
+        }
+        if (-not (Test-Path "assets\logo.ico")) {
+            Write-Error "Error: logo.ico not found"
+            exit 1
+        }
         
     - name: Create spec file
       run: |
