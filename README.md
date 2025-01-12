@@ -1,56 +1,44 @@
-# TG Cloud 请求模拟器
+# 控客-Telegram云控系统-账号提取
 
-基于 PyQt6 的请求模拟工具，用于模拟 TG Cloud 的 API 请求。
+## 版本历史
 
-## 环境要求
+### v1.1.0 (2024-01-13)
+- 优化在线接码页面的任务获取逻辑
+  - 修改为先获取任务列表，再获取每个任务的账号
+  - 修复了任务总数显示错误的问题
+  - 优化了分页逻辑计算
+- 改进UI交互
+  - 修复了按钮状态管理问题
+  - 在获取验证码时禁用其他按钮
+  - 优化了进度显示和日志输出
+- 数据处理优化
+  - 修正了数据字段映射
+  - 优化了验证码获取和显示逻辑
+  - 改进了数据缓存管理
 
-- Python 3.8+
-- Poetry
+## 功能特性
+- 支持多任务批量获取账号信息
+- 实时获取验证码功能
+- 支持账号状态和任务状态的可视化显示
+- 提供数据分页和搜索功能
+- 支持双击复制账号信息
+- 完整的日志记录系统
 
-## 安装
-
-1. 安装 Poetry（如果未安装）:
+## 安装说明
+1. 确保已安装Python 3.8+
+2. 安装依赖：
 ```bash
-curl -sSL https://install.python-poetry.org | python3 -
+pip install -r requirements.txt
 ```
 
-2. 安装项目依赖:
+## 使用方法
+1. 配置config.ini文件，填入必要的认证信息
+2. 运行主程序：
 ```bash
-poetry install
-```
-
-## 运行
-
-```bash
-poetry run python gui_main.py
-```
-
-或者先激活虚拟环境后运行：
-```bash
-# 激活虚拟环境
-poetry shell
-
-# 运行程序
 python gui_main.py
 ```
 
-## 开发
-
-1. 激活虚拟环境:
-```bash
-poetry shell
-```
-
-2. 添加新依赖:
-```bash
-poetry add package-name
-```
-
-## 项目结构
-
-```
-tgcloud-request-simulator/
-├── gui_main.py          # 主程序
-├── pyproject.toml       # Poetry 配置文件
-└── README.md           # 项目说明文档
-``` 
+## 注意事项
+- 使用前请确保config.ini中的认证信息正确
+- 建议定期清理缓存数据
+- 获取验证码时请勿频繁操作，建议等待系统自动刷新 
