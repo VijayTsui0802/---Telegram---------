@@ -235,56 +235,51 @@ QWidget {
 
 /* 数字调节按钮样式 */
 QSpinBox {
-    padding: 5px;
-    border: 1px solid #c0c0c0;
+    padding: 5px 10px;
+    border: 2px solid #dcdde1;
     border-radius: 4px;
     background: white;
-    min-width: 80px;
-}
-
-QSpinBox:hover {
-    border-color: #0078d4;
-}
-
-QSpinBox:focus {
-    border-color: #0078d4;
-    border-width: 2px;
+    min-width: 150px;
+    min-height: 25px;
+    font-size: 14px;
 }
 
 QSpinBox::up-button {
     width: 20px;
-    border-left: 1px solid #c0c0c0;
-    border-bottom: 1px solid #c0c0c0;
-    border-top-right-radius: 4px;
-    background: #f5f5f5;
-    subcontrol-origin: border;
-    subcontrol-position: top right;
-}
-
-QSpinBox::up-button:hover {
-    background: #e5e5e5;
-}
-
-QSpinBox::up-button:pressed {
-    background: #d0d0d0;
+    border-left: 1px solid #dcdde1;
+    border-bottom: 1px solid #dcdde1;
+    background: #f8f9fa;
 }
 
 QSpinBox::down-button {
     width: 20px;
-    border-left: 1px solid #c0c0c0;
-    border-top: 1px solid #c0c0c0;
-    border-bottom-right-radius: 4px;
-    background: #f5f5f5;
-    subcontrol-origin: border;
-    subcontrol-position: bottom right;
+    border-left: 1px solid #dcdde1;
+    background: #f8f9fa;
 }
 
+QSpinBox::up-button:hover,
 QSpinBox::down-button:hover {
-    background: #e5e5e5;
+    background: #e9ecef;
 }
 
-QSpinBox::down-button:pressed {
-    background: #d0d0d0;
+QSpinBox:hover {
+    border-color: #3498db;
+}
+
+QSpinBox:focus {
+    border-color: #3498db;
+    background: #fff;
+}
+
+/* 任务配置组样式 */
+QGroupBox[title="任务配置"] QSpinBox {
+    min-width: 180px;
+    padding: 8px 12px;
+}
+
+QGroupBox[title="任务配置"] QLabel {
+    min-width: 80px;
+    font-size: 14px;
 }
 
 QSpinBox::up-arrow {
