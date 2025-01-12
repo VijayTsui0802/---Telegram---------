@@ -201,10 +201,11 @@ class MissionAccountWorker(QObject):
                     continue
 
                 # 计算总页数
-                total_pages = first_response['data']['totalPage']  # 这是总页数
+                total_records = first_response['data']['totalPage']  # 这是总记录数
                 limit = first_response['data']['limit']  # 每页条数
+                total_pages = (total_records + limit - 1) // limit  # 计算实际的总页数
                 
-                self.log_message.emit(f"任务 {mission_id} 共有 {total_pages} 页，每页 {limit} 条")
+                self.log_message.emit(f"任务 {mission_id} 共有 {total_records} 条记录，每页 {limit} 条，共 {total_pages} 页")
                 
                 # 如果是第一个任务，初始化 all_accounts_data
                 if all_accounts_data is None:
