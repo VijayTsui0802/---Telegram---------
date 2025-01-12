@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from datetime import datetime
 from .mission_account import MissionAccountWorker
+from PyQt6.QtGui import QColor
 
 class CodeWorker(QThread):
     """验证码获取工作线程"""
@@ -105,10 +106,21 @@ class MissionAccountTab(QWidget):
         result_layout = QVBoxLayout()
         
         self.account_table = QTableWidget()
-        self.account_table.setColumnCount(11)
+        self.account_table.setColumnCount(13)  # 修改列数为13
         self.account_table.setHorizontalHeaderLabels([
-            "任务ID", "账号ID", "账号名称", "两步密码", "分组", "状态", 
-            "添加次数", "添加数量", "更新时间", "验证码", "发送时间"
+            "序号",          # 0
+            "账号ID",        # 1
+            "账号名称",      # 2
+            "任务状态",      # 3
+            "账号状态",      # 4
+            "分组",         # 5
+            "成功次数",      # 6
+            "失败次数",      # 7
+            "创建时间",      # 8
+            "更新时间",      # 9
+            "两步密码",      # 10
+            "验证码",        # 11
+            "发送时间"       # 12
         ])
         
         # 设置表格列宽比例
@@ -116,15 +128,15 @@ class MissionAccountTab(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)  # 所有列都参与自适应
         
         # 设置特定列的固定宽度
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # 任务ID
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # 序号
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # 账号ID
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)  # 添加次数
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)  # 添加数量
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)  # 成功次数
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)  # 失败次数
         
-        self.account_table.setColumnWidth(0, 80)   # 任务ID
+        self.account_table.setColumnWidth(0, 60)   # 序号
         self.account_table.setColumnWidth(1, 80)   # 账号ID
-        self.account_table.setColumnWidth(6, 80)   # 添加次数
-        self.account_table.setColumnWidth(7, 80)   # 添加数量
+        self.account_table.setColumnWidth(6, 80)   # 成功次数
+        self.account_table.setColumnWidth(7, 80)   # 失败次数
         
         # 设置表格其他属性
         self.account_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # 整行选择
@@ -259,12 +271,12 @@ class MissionAccountTab(QWidget):
     def update_code_and_time(self, account_id: str, code: str, send_time: int):
         """更新指定账号的验证码和发送时间"""
         for row in range(self.account_table.rowCount()):
-            if self.account_table.item(row, 1).text() == account_id:
-                # 更新验证码 - 修改为第9列
-                self.account_table.setItem(row, 9, QTableWidgetItem(code))
-                # 更新发送时间 - 修改为第10列
+            if self.account_table.item(row, 1).text() == account_id:  # 账号ID在第1列
+                # 更新验证码 - 第11列
+                self.account_table.setItem(row, 11, QTableWidgetItem(code))
+                # 更新发送时间 - 第12列
                 time_str = datetime.fromtimestamp(send_time).strftime('%Y-%m-%d %H:%M:%S')
-                self.account_table.setItem(row, 10, QTableWidgetItem(time_str))
+                self.account_table.setItem(row, 12, QTableWidgetItem(time_str))
                 self.log_message_signal.emit(f"账号 {account_id} 的验证码已更新: {code}")
                 break
                 
@@ -297,43 +309,64 @@ class MissionAccountTab(QWidget):
         end_idx = min(start_idx + self.page_size, len(self.all_accounts))
         
         # 显示当前页的数据
-        for account in self.all_accounts[start_idx:end_idx]:
+        for idx, account in enumerate(self.all_accounts[start_idx:end_idx], start=1):
             row = self.account_table.rowCount()
             self.account_table.insertRow(row)
             
             # 设置单元格数据
-            self.account_table.setItem(row, 0, QTableWidgetItem(str(account['mission_id'])))
-            self.account_table.setItem(row, 1, QTableWidgetItem(str(account['account_id'])))
-            self.account_table.setItem(row, 2, QTableWidgetItem(account['name']))
+            self.account_table.setItem(row, 0, QTableWidgetItem(str(idx)))  # 序号
+            self.account_table.setItem(row, 1, QTableWidgetItem(str(account['account_id'])))  # 账号ID
+            self.account_table.setItem(row, 2, QTableWidgetItem(account['name']))  # 账号名称
+            self.account_table.setItem(row, 3, QTableWidgetItem(account['status_text']))  # 任务状态
+            self.account_table.setItem(row, 4, QTableWidgetItem(account['account_status']))  # 账号状态
+            self.account_table.setItem(row, 5, QTableWidgetItem(account['group_name']))  # 分组
             
-            # 从历史记录中获取两步密码信息，只显示数字部分
+            # 使用 receive_times 和 reply_times 替代 msg_success_times 和 msg_error_times
+            self.account_table.setItem(row, 6, QTableWidgetItem(str(account.get('receive_times', 0))))  # 成功次数
+            self.account_table.setItem(row, 7, QTableWidgetItem(str(account.get('reply_times', 0))))  # 失败次数
+            
+            self.account_table.setItem(row, 8, QTableWidgetItem(account['create_time_text']))  # 创建时间
+            self.account_table.setItem(row, 9, QTableWidgetItem(account['update_time_text']))  # 更新时间
+            
+            # 从历史记录中获取两步密码信息
             two_step_password = ""
             if self.config and hasattr(self.config, 'get_history'):
                 history = self.config.get_history(account['account_id'])
                 if history and '设置两步密码' in history['result']:
-                    # 使用正则表达式提取数字
                     import re
                     match = re.search(r'【(\d+)】', history['result'])
                     if match:
                         two_step_password = match.group(1)
-            self.account_table.setItem(row, 3, QTableWidgetItem(two_step_password))
+            self.account_table.setItem(row, 10, QTableWidgetItem(two_step_password))  # 两步密码
             
-            self.account_table.setItem(row, 4, QTableWidgetItem(account['group_name']))
-            self.account_table.setItem(row, 5, QTableWidgetItem(account['status_text']))
-            self.account_table.setItem(row, 6, QTableWidgetItem(str(account['add_contacts_times'])))
-            self.account_table.setItem(row, 7, QTableWidgetItem(str(account['add_contacts_num'])))
-            # 更新时间放在第8列
-            self.account_table.setItem(row, 8, QTableWidgetItem(account['update_time_text']))
-            # 验证码放在第9列
-            self.account_table.setItem(row, 9, QTableWidgetItem(""))
-            # 发送时间放在第10列
-            self.account_table.setItem(row, 10, QTableWidgetItem(""))
+            # 验证码和发送时间初始为空，将由update_code_and_time方法更新
+            self.account_table.setItem(row, 11, QTableWidgetItem(""))  # 验证码
+            self.account_table.setItem(row, 12, QTableWidgetItem(""))  # 发送时间
             
             # 设置每个单元格为不可编辑
             for col in range(self.account_table.columnCount()):
                 item = self.account_table.item(row, col)
                 if item:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    
+                    # 设置账号状态的颜色
+                    if col == 4:  # 账号状态列
+                        if account['account_status'] == 'online':
+                            item.setBackground(QColor("#e6ffe6"))  # 在线-浅绿色
+                        elif account['account_status'] == 'offline':
+                            item.setBackground(QColor("#ffe6e6"))  # 离线-浅红色
+                    
+                    # 设置任务状态的颜色
+                    if col == 3:  # 任务状态列
+                        status_colors = {
+                            "not_start": QColor("#ffffff"),  # 未开始-白色
+                            "running": QColor("#e6f3ff"),    # 运行中-浅蓝色
+                            "finished": QColor("#e6ffe6"),   # 已完成-浅绿色
+                            "error": QColor("#ffe6e6")       # 错误-浅红色
+                        }
+                        status = account['status'].lower()
+                        if status in status_colors:
+                            item.setBackground(status_colors[status])
         
         # 更新页码显示
         self.page_label.setText(f"{self.current_page}/{self.total_pages}")
@@ -461,14 +494,14 @@ class MissionAccountTab(QWidget):
 
     def copy_cell_content(self, row, column):
         """双击单元格复制内容到剪贴板"""
-        if column in [2, 3, 9]:  # 账号名称、两步密码和验证码列
+        if column in [2, 10, 11]:  # 账号名称、两步密码和验证码列
             item = self.account_table.item(row, column)
             if item and item.text():
                 QApplication.clipboard().setText(item.text())
                 # 根据列类型显示不同的提示信息
                 content_type = {
                     2: "账号名称",
-                    3: "两步密码",
-                    9: "验证码"
+                    10: "两步密码",
+                    11: "验证码"
                 }.get(column, "内容")
                 self.log_message(f"已复制{content_type}到剪贴板: {item.text()}") 

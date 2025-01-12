@@ -102,7 +102,7 @@ class MissionAccountWorker(QObject):
         }
         
         data = {
-            "map": {"type": "filter"},
+            "map": {"type": "multi_msg"},
             "page": 1,
             "limit": 10
         }
@@ -151,6 +151,9 @@ class MissionAccountWorker(QObject):
         }
         
         try:
+            # 禁用SSL验证警告
+            urllib3.disable_warnings()
+            
             # 发送POST请求
             response = requests.post(
                 url, 
@@ -180,12 +183,15 @@ class MissionAccountWorker(QObject):
                 return
                 
             # 2. 遍历任务列表
-            for mission in mission_list['data']['data']:
+            all_accounts_data = None
+            total_missions = len(mission_list['data']['data'])
+            
+            for index, mission in enumerate(mission_list['data']['data'], 1):
                 if not self.is_running:
                     break
                     
                 mission_id = mission['id']
-                self.log_message.emit(f"正在获取任务 {mission_id} 的账号列表")
+                self.log_message.emit(f"正在获取任务 {mission_id} ({index}/{total_missions}) 的账号列表")
                 
                 # 3. 获取任务的所有账号
                 page = 1
@@ -195,15 +201,15 @@ class MissionAccountWorker(QObject):
                     continue
 
                 # 计算总页数
-                total_records = first_response['data']['totalPage']  # 这是总记录数
+                total_pages = first_response['data']['totalPage']  # 这是总页数
                 limit = first_response['data']['limit']  # 每页条数
-                total_pages = (total_records + limit - 1) // limit  # 计算总页数
                 
-                self.log_message.emit(f"任务 {mission_id} 共有 {total_records} 条记录，每页 {limit} 条，共 {total_pages} 页")
+                self.log_message.emit(f"任务 {mission_id} 共有 {total_pages} 页，每页 {limit} 条")
                 
-                # 收集所有页面的数据
-                all_accounts_data = first_response
-                all_accounts_data['data']['data'] = []  # 清空数据列表，准备收集所有页面的数据
+                # 如果是第一个任务，初始化 all_accounts_data
+                if all_accounts_data is None:
+                    all_accounts_data = first_response
+                    all_accounts_data['data']['data'] = []
                 
                 # 获取所有页面
                 for page in range(1, total_pages + 1):
@@ -221,7 +227,8 @@ class MissionAccountWorker(QObject):
                     # 更新进度
                     self.progress_updated.emit(page, total_pages)
                 
-                # 发送完整数据
+            # 发送完整数据
+            if all_accounts_data:
                 self.request_finished.emit(all_accounts_data)
                     
         except Exception as e:
