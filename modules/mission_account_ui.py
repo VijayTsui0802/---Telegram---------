@@ -406,6 +406,29 @@ class MissionAccountTab(QWidget):
             self.current_page = 1
             self.update_table_display()
         
+        # 重置按钮状态
+        self.cleanup()
+        
+    def cleanup(self):
+        """清理资源并重置UI"""
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.refresh_button.setEnabled(True)
+        self.clear_button.setEnabled(True)
+        
+        # 停止所有验证码获取线程
+        for worker in self.code_workers:
+            worker.quit()
+            worker.wait()
+        self.code_workers.clear()
+        
+        if self.work_thread and self.work_thread.isRunning():
+            self.work_thread.quit()
+            self.work_thread.wait()
+            
+        self.worker = None
+        self.work_thread = None
+        
     def refresh_data(self):
         """刷新数据（忽略缓存重新获取）"""
         try:
@@ -472,26 +495,6 @@ class MissionAccountTab(QWidget):
             self.worker.stop()
             self.log_message("正在停止...")
             
-    def cleanup(self):
-        """清理资源并重置UI"""
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.refresh_button.setEnabled(True)
-        self.clear_button.setEnabled(True)
-        
-        # 停止所有验证码获取线程
-        for worker in self.code_workers:
-            worker.quit()
-            worker.wait()
-        self.code_workers.clear()
-        
-        if self.work_thread and self.work_thread.isRunning():
-            self.work_thread.quit()
-            self.work_thread.wait()
-            
-        self.worker = None
-        self.work_thread = None 
-
     def copy_cell_content(self, row, column):
         """双击单元格复制内容到剪贴板"""
         if column in [2, 10, 11]:  # 账号名称、两步密码和验证码列
