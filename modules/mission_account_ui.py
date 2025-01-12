@@ -232,11 +232,21 @@ class MissionAccountTab(QWidget):
         """切换验证码获取状态"""
         if not self.is_getting_codes:
             self.is_getting_codes = True
+            # 禁用其他按钮
+            self.start_button.setEnabled(False)
+            self.refresh_button.setEnabled(False)
+            self.clear_button.setEnabled(False)
+            # 更改验证码按钮文本
             self.code_button.setText("停止获取验证码")
             self.code_timer.start(5000)  # 5秒更新一次
             self.update_verification_codes()  # 立即执行一次
         else:
             self.is_getting_codes = False
+            # 启用其他按钮
+            self.start_button.setEnabled(True)
+            self.refresh_button.setEnabled(True)
+            self.clear_button.setEnabled(True)
+            # 更改验证码按钮文本
             self.code_button.setText("开始获取验证码")
             self.code_timer.stop()
             # 停止所有验证码获取线程
