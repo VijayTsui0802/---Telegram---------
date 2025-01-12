@@ -106,6 +106,7 @@ class MissionAddTab(QWidget):
         self.worker.log_message.connect(self.log_message)
         self.worker.request_finished.connect(self.on_request_finished)
         self.work_thread.started.connect(lambda: self.worker.process_request(use_history))
+        self.work_thread.finished.connect(self.work_thread.deleteLater)
         
         # 启动线程
         self.work_thread.start()
@@ -130,5 +131,24 @@ class MissionAddTab(QWidget):
         
     def on_request_finished(self, response: dict):
         """请求完成处理"""
-        self.log_message(f"请求完成: {json.dumps(response, ensure_ascii=False)}")
-        self.stop_request()  # 恢复按钮状态 
+        try:
+            self.log_message(f"请求完成: {json.dumps(response, ensure_ascii=False)}")
+            
+            # 确保在主线程中更新UI
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.account_input.setEnabled(not self.history_radio.isChecked())
+            
+            # 清理资源
+            if self.work_thread and self.work_thread.isRunning():
+                self.work_thread.quit()
+                self.work_thread.wait()
+            
+            self.worker = None
+            self.work_thread = None
+            
+        except Exception as e:
+            self.log_message(f"处理请求完成时出错: {str(e)}")
+            # 确保按钮状态被重置
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False) 

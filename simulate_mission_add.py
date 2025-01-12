@@ -174,6 +174,7 @@ class MissionAddWorker(QObject):
                 successful_accounts = self.get_successful_accounts()
                 if not successful_accounts:
                     self.log_message.emit("没有找到成功设置两步验证的账号")
+                    self.request_finished.emit({"code": 0, "msg": "没有找到成功设置两步验证的账号"})
                     return None
                     
                 # 获取已导入的账号
@@ -187,6 +188,7 @@ class MissionAddWorker(QObject):
                 
                 if not unused_accounts:
                     self.log_message.emit("所有成功账号都已导入任务")
+                    self.request_finished.emit({"code": 0, "msg": "所有成功账号都已导入任务"})
                     return None
                 
                 # 使用未导入的账号创建任务
@@ -205,10 +207,13 @@ class MissionAddWorker(QObject):
                 # 标记账号为已导入
                 self.save_imported_accounts(account_items.split(','))
                 
+            self.request_finished.emit(response)
             return response
             
         except Exception as e:
+            error_response = {"code": 0, "msg": f"处理请求时出错: {e}"}
             self.log_message.emit(f"处理请求时出错: {e}")
+            self.request_finished.emit(error_response)
             return None
     
     def stop(self):
