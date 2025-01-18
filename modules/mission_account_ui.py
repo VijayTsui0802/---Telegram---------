@@ -340,17 +340,13 @@ class MissionAccountTab(QWidget):
                 self.log_message("没有数据可显示")
                 return
             
-            # 计算当前页的数据范围
-            start_idx = (self.current_page - 1) * self.page_size
-            end_idx = min(start_idx + self.page_size, len(self.all_accounts))
-            
-            # 显示当前页的数据
-            for idx, account in enumerate(self.all_accounts[start_idx:end_idx], start=1):
+            # 直接使用数据库返回的当前页数据
+            for idx, account in enumerate(self.all_accounts, start=1):
                 row_position = self.account_table.rowCount()
                 self.account_table.insertRow(row_position)
                 
                 # 序号
-                self.account_table.setItem(row_position, 0, QTableWidgetItem(str(start_idx + idx)))
+                self.account_table.setItem(row_position, 0, QTableWidgetItem(str(idx)))
                 
                 # 账号ID
                 self.account_table.setItem(row_position, 1, QTableWidgetItem(str(account.get('account_id', ''))))
@@ -379,8 +375,8 @@ class MissionAccountTab(QWidget):
                 self.account_table.setItem(row_position, 5, QTableWidgetItem(str(account.get('group', ''))))
                 
                 # 成功/失败次数
-                self.account_table.setItem(row_position, 6, QTableWidgetItem(str(account.get('msg_success_times', 0))))
-                self.account_table.setItem(row_position, 7, QTableWidgetItem(str(account.get('msg_error_times', 0))))
+                self.account_table.setItem(row_position, 6, QTableWidgetItem(str(account.get('success_count', 0))))
+                self.account_table.setItem(row_position, 7, QTableWidgetItem(str(account.get('fail_count', 0))))
                 
                 # 创建时间
                 created_at = account.get('created_at', '')
