@@ -9,10 +9,43 @@ class Database:
     def __init__(self, db_path: str = "data.db"):
         self.db_path = db_path
         self.init_database()
+        self.upgrade_database()
 
     def get_connection(self):
         """获取数据库连接"""
         return sqlite3.connect(self.db_path)
+
+    def upgrade_database(self):
+        """升级数据库结构"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 检查accounts表是否需要升级
+                cursor.execute("PRAGMA table_info(accounts)")
+                columns = {column[1] for column in cursor.fetchall()}
+                
+                # 需要添加的新列
+                new_columns = {
+                    'success_count': 'INTEGER DEFAULT 0',
+                    'fail_count': 'INTEGER DEFAULT 0',
+                    'group_name': 'TEXT',
+                    'two_step_password': 'TEXT'
+                }
+                
+                # 添加缺失的列
+                for column, type_def in new_columns.items():
+                    if column not in columns:
+                        try:
+                            cursor.execute(f"ALTER TABLE accounts ADD COLUMN {column} {type_def}")
+                            print(f"添加列 {column} 成功")
+                        except Exception as e:
+                            print(f"添加列 {column} 失败: {e}")
+                
+                conn.commit()
+                
+        except Exception as e:
+            print(f"升级数据库失败: {e}")
 
     def init_database(self):
         """初始化数据库表"""
@@ -28,6 +61,10 @@ class Database:
                     username TEXT,
                     has_2fa BOOLEAN,
                     status INTEGER,
+                    success_count INTEGER DEFAULT 0,
+                    fail_count INTEGER DEFAULT 0,
+                    group_name TEXT,
+                    two_step_password TEXT,
                     created_at TIMESTAMP,
                     updated_at TIMESTAMP
                 )
@@ -89,14 +126,18 @@ class Database:
             
             cursor.execute('''
                 INSERT OR REPLACE INTO accounts 
-                (account_id, phone, username, has_2fa, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM accounts WHERE account_id = ?), ?), ?)
+                (account_id, phone, username, has_2fa, status, success_count, fail_count, group_name, two_step_password, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM accounts WHERE account_id = ?), ?), ?)
             ''', (
                 str(account_data.get('account_id')),
                 account_data.get('phone'),
                 account_data.get('username'),
                 account_data.get('has_2fa', False),
                 account_data.get('status', 0),
+                account_data.get('success_count', 0),
+                account_data.get('fail_count', 0),
+                account_data.get('group', ''),
+                account_data.get('two_step_password', ''),
                 str(account_data.get('account_id')),
                 now,
                 now
@@ -189,8 +230,12 @@ class Database:
                     'username': row[3],
                     'has_2fa': bool(row[4]),
                     'status': row[5],
-                    'created_at': row[6],
-                    'updated_at': row[7]
+                    'success_count': row[6],
+                    'fail_count': row[7],
+                    'group': row[8],
+                    'two_step_password': row[9],
+                    'created_at': row[10],
+                    'updated_at': row[11]
                 }
             return None
 
@@ -228,26 +273,46 @@ class Database:
             
             # 获取分页数据
             cursor.execute('''
-                SELECT a.* 
+                SELECT 
+                    a.id,
+                    a.account_id,
+                    a.phone,
+                    a.username,
+                    a.has_2fa,
+                    a.status as account_status,
+                    a.success_count,
+                    a.fail_count,
+                    a.group_name,
+                    a.two_step_password,
+                    a.created_at,
+                    a.updated_at,
+                    ma.status as mission_status
                 FROM mission_accounts ma 
                 JOIN accounts a ON ma.account_id = a.account_id 
                 WHERE ma.mission_id = ?
+                ORDER BY a.created_at DESC
                 LIMIT ? OFFSET ?
             ''', (str(mission_id), limit, (page - 1) * limit))
             
             rows = cursor.fetchall()
             accounts = []
             for row in rows:
-                accounts.append({
+                account = {
                     'id': row[0],
                     'account_id': row[1],
                     'phone': row[2],
                     'username': row[3],
                     'has_2fa': bool(row[4]),
-                    'status': row[5],
-                    'created_at': row[6],
-                    'updated_at': row[7]
-                })
+                    'account_status': row[5],  # 账号状态
+                    'success_count': row[6],
+                    'fail_count': row[7],
+                    'group': row[8],  # 分组名称
+                    'two_step_password': row[9],
+                    'created_at': row[10],
+                    'updated_at': row[11],
+                    'status': row[12]  # 任务状态
+                }
+                accounts.append(account)
             
             return {
                 'total': total,
@@ -319,3 +384,77 @@ class Database:
                         )
         except Exception as e:
             print(f"数据迁移失败: {e}") 
+
+    def get_all_accounts(self, page: int = 1, limit: int = 10) -> Dict[str, Any]:
+        """获取所有账号列表"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 获取总记录数
+            cursor.execute('SELECT COUNT(*) FROM accounts')
+            total = cursor.fetchone()[0]
+            
+            # 获取分页数据
+            cursor.execute('''
+                SELECT 
+                    a.*,
+                    ma.status as mission_status,
+                    ma.mission_id,
+                    v.code as verification_code,
+                    v.send_time as code_send_time,
+                    v.created_at as code_created_at
+                FROM accounts a
+                LEFT JOIN (
+                    SELECT account_id, mission_id, status
+                    FROM mission_accounts ma1
+                    WHERE created_at = (
+                        SELECT MAX(created_at)
+                        FROM mission_accounts ma2
+                        WHERE ma2.account_id = ma1.account_id
+                    )
+                ) ma ON a.account_id = ma.account_id
+                LEFT JOIN (
+                    SELECT account_id, code, send_time, created_at
+                    FROM verification_codes vc1
+                    WHERE created_at = (
+                        SELECT MAX(created_at)
+                        FROM verification_codes vc2
+                        WHERE vc2.account_id = vc1.account_id
+                    )
+                ) v ON a.account_id = v.account_id
+                ORDER BY a.created_at DESC
+                LIMIT ? OFFSET ?
+            ''', (limit, (page - 1) * limit))
+            
+            rows = cursor.fetchall()
+            accounts = []
+            for row in rows:
+                account = {
+                    'id': row[0],
+                    'account_id': row[1],
+                    'phone': row[2],
+                    'username': row[3],
+                    'has_2fa': bool(row[4]),
+                    'account_status': row[5],  # 账号状态
+                    'success_count': row[6],
+                    'fail_count': row[7],
+                    'group': row[8],  # 分组名称
+                    'two_step_password': row[9],
+                    'created_at': row[10],
+                    'updated_at': row[11],
+                    'status': row[12],  # 任务状态
+                    'mission_id': row[13],
+                    'verification_code': {
+                        'code': row[14],
+                        'send_time': row[15],
+                        'created_at': row[16]
+                    } if row[14] else {}
+                }
+                accounts.append(account)
+            
+            return {
+                'total': total,
+                'page': page,
+                'limit': limit,
+                'data': accounts
+            } 

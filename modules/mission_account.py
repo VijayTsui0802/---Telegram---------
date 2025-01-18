@@ -225,6 +225,14 @@ class MissionAccountWorker(QObject):
                 mission_id = mission['id']
                 self.log_message.emit(f"正在获取任务 {mission_id} ({index}/{total_missions}) 的账号列表")
                 
+                # 保存任务信息
+                mission_data = {
+                    'id': mission['id'],
+                    'mission_type': mission.get('type'),
+                    'status': mission.get('status', 0)
+                }
+                self.db.save_mission(mission_data)
+                
                 # 3. 获取任务的所有账号
                 page = 1
                 first_response = self.get_mission_accounts(mission_id, page)
@@ -241,23 +249,7 @@ class MissionAccountWorker(QObject):
                 
                 # 保存第一页数据
                 if first_response.get('code') == 1 and 'data' in first_response:
-                    for account in first_response['data'].get('data', []):
-                        # 保存账号信息
-                        account_data = {
-                            'account_id': str(account.get('account_id')),
-                            'phone': account.get('phone'),
-                            'username': account.get('username'),
-                            'has_2fa': account.get('has_2fa', False),
-                            'status': account.get('status', 0)
-                        }
-                        self.db.save_account(account_data)
-                        
-                        # 保存任务账号关联
-                        self.db.save_mission_account(
-                            mission_id=str(mission_id),
-                            account_id=str(account.get('account_id')),
-                            status=account.get('status', 0)
-                        )
+                    self._save_accounts_data(first_response['data'].get('data', []), mission_id)
                 
                 # 获取剩余页面
                 for page in range(2, total_pages + 1):
@@ -271,23 +263,7 @@ class MissionAccountWorker(QObject):
                         
                     # 保存当前页数据
                     if accounts.get('code') == 1 and 'data' in accounts:
-                        for account in accounts['data'].get('data', []):
-                            # 保存账号信息
-                            account_data = {
-                                'account_id': str(account.get('account_id')),
-                                'phone': account.get('phone'),
-                                'username': account.get('username'),
-                                'has_2fa': account.get('has_2fa', False),
-                                'status': account.get('status', 0)
-                            }
-                            self.db.save_account(account_data)
-                            
-                            # 保存任务账号关联
-                            self.db.save_mission_account(
-                                mission_id=str(mission_id),
-                                account_id=str(account.get('account_id')),
-                                status=account.get('status', 0)
-                            )
+                        self._save_accounts_data(accounts['data'].get('data', []), mission_id)
                     
                     # 更新进度
                     self.progress_updated.emit(page, total_pages)
@@ -303,6 +279,30 @@ class MissionAccountWorker(QObject):
         except Exception as e:
             self.log_message.emit(f"处理请求时出错: {e}")
             
+    def _save_accounts_data(self, accounts: List[Dict], mission_id: str):
+        """保存账号数据"""
+        for account in accounts:
+            # 保存账号信息
+            account_data = {
+                'account_id': str(account.get('account_id')),
+                'phone': account.get('name', ''),  # 使用name字段作为手机号
+                'username': account.get('name', ''),  # 同样使用name作为用户名
+                'has_2fa': False,  # 默认值
+                'status': self._convert_status(account.get('account_status', '')),  # 转换账号状态
+                'success_count': account.get('msg_success_times', 0),  # 成功次数
+                'fail_count': account.get('msg_error_times', 0),  # 失败次数
+                'group': account.get('group_name', ''),  # 分组名称
+                'two_step_password': ''  # 默认值
+            }
+            self.db.save_account(account_data)
+            
+            # 保存任务账号关联
+            self.db.save_mission_account(
+                mission_id=str(mission_id),
+                account_id=str(account.get('account_id')),
+                status=self._convert_mission_status(account.get('status', 'not_start'))
+            )
+
     def stop(self):
         """停止处理"""
         self.is_running = False
@@ -357,3 +357,22 @@ class MissionAccountWorker(QObject):
         
         # 设置表格的焦点策略
         self.tableWidget.setFocusPolicy(Qt.FocusPolicy.StrongFocus) 
+
+    def _convert_status(self, status: str) -> int:
+        """转换账号状态为数字"""
+        status_map = {
+            'online': 0,      # 在线
+            'offline': 1,     # 离线
+            '': 1            # 默认在线
+        }
+        return status_map.get(status.lower(), 0)
+
+    def _convert_mission_status(self, status: str) -> int:
+        """转换任务状态为数字"""
+        status_map = {
+            'not_start': 0,   # 未开始
+            'running': 1,     # 进行中
+            'finished': 2,    # 已完成
+            'failed': 3       # 已失败
+        }
+        return status_map.get(status.lower(), 0) 

@@ -56,58 +56,21 @@ class MissionAccountTab(QWidget):
         """从数据库加载数据"""
         try:
             # 获取所有账号数据
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT a.*, 
-                           v.code as verification_code, 
-                           v.send_time as code_send_time,
-                           v.created_at as code_created_at
-                    FROM accounts a
-                    LEFT JOIN (
-                        SELECT account_id, code, send_time, created_at
-                        FROM verification_codes vc1
-                        WHERE created_at = (
-                            SELECT MAX(created_at)
-                            FROM verification_codes vc2
-                            WHERE vc2.account_id = vc1.account_id
-                        )
-                    ) v ON a.account_id = v.account_id
-                    ORDER BY a.created_at DESC
-                ''')
-                
-                rows = cursor.fetchall()
-                self.all_accounts = []
-                
-                for row in rows:
-                    account = {
-                        'id': row[0],
-                        'account_id': row[1],
-                        'phone': row[2],
-                        'username': row[3],
-                        'has_2fa': bool(row[4]),
-                        'status': row[5],
-                        'created_at': row[6],
-                        'updated_at': row[7],
-                        'verification_code': {
-                            'code': row[8],
-                            'send_time': row[9],
-                            'created_at': row[10]
-                        } if row[8] else {}
-                    }
-                    self.all_accounts.append(account)
-                
-                # 更新总页数
-                self.total_pages = (len(self.all_accounts) + self.page_size - 1) // self.page_size
-                self.current_page = 1
-                
-                # 更新表格显示
-                self.update_table_display()
-                self.log_message(f"从数据库加载了 {len(self.all_accounts)} 条记录")
+            result = self.db.get_all_accounts(self.current_page, self.page_size)
+            
+            self.all_accounts = result.get('data', [])
+            total_records = result.get('total', 0)
+            
+            # 更新总页数
+            self.total_pages = (total_records + self.page_size - 1) // self.page_size
+            
+            # 更新表格显示
+            self.update_table_display()
+            self.log_message(f"从数据库加载了 {len(self.all_accounts)} 条记录，共 {total_records} 条")
                 
         except Exception as e:
             self.log_message(f"从数据库加载数据失败: {str(e)}")
-
+            
     def init_ui(self):
         """初始化UI"""
         layout = QVBoxLayout()
@@ -353,20 +316,19 @@ class MissionAccountTab(QWidget):
         """处理每页显示数量变化"""
         self.page_size = int(value)
         self.current_page = 1
-        self.total_pages = (len(self.all_accounts) + self.page_size - 1) // self.page_size
-        self.update_table_display()
+        self.load_data_from_db()
         
     def prev_page(self):
         """上一页"""
         if self.current_page > 1:
             self.current_page -= 1
-            self.update_table_display()
+            self.load_data_from_db()
         
     def next_page(self):
         """下一页"""
         if self.current_page < self.total_pages:
             self.current_page += 1
-            self.update_table_display()
+            self.load_data_from_db()
             
     def update_table_display(self):
         """更新表格显示"""
@@ -407,18 +369,18 @@ class MissionAccountTab(QWidget):
                 
                 # 账号状态
                 account_status = {
-                    0: '正常',
-                    1: '已禁用',
+                    0: '在线',
+                    1: '离线',
                     2: '已删除'
-                }.get(account.get('status', 0), '未知')
+                }.get(account.get('account_status', 0), '未知')
                 self.account_table.setItem(row_position, 4, QTableWidgetItem(account_status))
                 
                 # 分组
                 self.account_table.setItem(row_position, 5, QTableWidgetItem(str(account.get('group', ''))))
                 
                 # 成功/失败次数
-                self.account_table.setItem(row_position, 6, QTableWidgetItem(str(account.get('success_count', 0))))
-                self.account_table.setItem(row_position, 7, QTableWidgetItem(str(account.get('fail_count', 0))))
+                self.account_table.setItem(row_position, 6, QTableWidgetItem(str(account.get('msg_success_times', 0))))
+                self.account_table.setItem(row_position, 7, QTableWidgetItem(str(account.get('msg_error_times', 0))))
                 
                 # 创建时间
                 created_at = account.get('created_at', '')
@@ -468,6 +430,7 @@ class MissionAccountTab(QWidget):
                 
         except Exception as e:
             self.log_message(f"更新表格显示时出错: {str(e)}")
+            raise  # 添加这行以便看到完整的错误信息
             
     def set_row_color(self, row: int, status: int):
         """设置行颜色"""
@@ -515,25 +478,10 @@ class MissionAccountTab(QWidget):
             if response.get('code') != 1:
                 self.log_message(f"获取数据失败: {response.get('msg', '未知错误')}")
                 return
-                
-            data = response.get('data', {})
             
-            # 将新数据添加到现有数据中
-            new_accounts = data.get('data', [])
-            if new_accounts:
-                # 使用account_id作为唯一标识更新数据
-                account_map = {acc['account_id']: acc for acc in self.all_accounts}
-                for new_acc in new_accounts:
-                    account_map[new_acc['account_id']] = new_acc
-                self.all_accounts = list(account_map.values())
-            
-            # 更新总页数
-            self.total_pages = (len(self.all_accounts) + self.page_size - 1) // self.page_size
-            
-            # 更新表格显示
-            self.update_table_display()
-            
-            self.log_message(f"成功更新数据，共 {len(self.all_accounts)} 条记录")
+            # 重新加载数据库中的所有数据
+            self.current_page = 1
+            self.load_data_from_db()
             
         except Exception as e:
             self.log_message(f"处理响应数据时出错: {str(e)}")
@@ -561,10 +509,9 @@ class MissionAccountTab(QWidget):
     def refresh_data(self):
         """刷新数据（忽略缓存重新获取）"""
         try:
-            if self.worker and self.worker.data_file.exists():
-                self.worker.data_file.unlink()  # 删除缓存文件
-                self.log_message("已删除缓存数据，准备重新获取")
-            self.start_process()  # 重新开始获取
+            self.current_page = 1
+            self.load_data_from_db()
+            self.log_message("数据已刷新")
         except Exception as e:
             self.log_message(f"刷新数据失败: {e}")
             
@@ -577,13 +524,7 @@ class MissionAccountTab(QWidget):
             self.total_pages = 1
             self.current_page = 1
             self.update_table_display()
-            
-            # 删除缓存文件
-            if self.worker and self.worker.data_file.exists():
-                self.worker.data_file.unlink()
-                self.log_message("已清除缓存数据")
-            else:
-                self.log_message("没有缓存数据需要清除")
+            self.log_message("已清除数据")
         except Exception as e:
             self.log_message(f"清除缓存失败: {e}")
             
