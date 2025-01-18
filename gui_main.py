@@ -309,6 +309,11 @@ class MainWindow(QMainWindow):
         self.config = Config()
         self.is_loading = False
         
+        # 添加分页相关属性
+        self.current_page = 1
+        self.total_pages = 1
+        self.page_size = 10  # 默认每页显示10条
+        
         # 设置窗口图标
         icon = QIcon("assets/logo.ico")
         self.setWindowIcon(icon)
@@ -409,13 +414,6 @@ class MainWindow(QMainWindow):
         task_group.setLayout(task_layout)
         layout.addWidget(task_group)
         
-        # 线程进度区域
-        self.thread_progress_group = QGroupBox("线程进度")
-        self.thread_progress_layout = QVBoxLayout()
-        self.thread_progress_bars = {}  # 存储线程进度条
-        self.thread_progress_group.setLayout(self.thread_progress_layout)
-        layout.addWidget(self.thread_progress_group)
-        
         # 按钮区域
         button_layout = QHBoxLayout()
         
@@ -434,9 +432,12 @@ class MainWindow(QMainWindow):
         
         layout.addLayout(button_layout)
         
-        # 进度条
-        self.progress_bar = QProgressBar()
-        layout.addWidget(self.progress_bar)
+        # 线程进度区域
+        self.thread_progress_group = QGroupBox("线程进度")
+        self.thread_progress_layout = QVBoxLayout()
+        self.thread_progress_bars = {}  # 存储线程进度条
+        self.thread_progress_group.setLayout(self.thread_progress_layout)
+        layout.addWidget(self.thread_progress_group)
         
         # 创建一个垂直分割器
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -483,6 +484,32 @@ class MainWindow(QMainWindow):
         self.result_table.setAlternatingRowColors(True)  # 启用交替行颜色
         
         result_layout.addWidget(self.result_table)
+        
+        # 分页控制
+        page_control_layout = QHBoxLayout()
+        
+        # 每页显示数量
+        page_size_layout = QHBoxLayout()
+        page_size_layout.addWidget(QLabel("每页显示:"))
+        self.page_size_combo = QComboBox()
+        self.page_size_combo.addItems(['10', '20', '50', '100'])
+        self.page_size_combo.currentTextChanged.connect(self.on_page_size_changed)
+        page_size_layout.addWidget(self.page_size_combo)
+        page_control_layout.addLayout(page_size_layout)
+        
+        # 页码控制
+        self.prev_page_btn = QPushButton("上一页")
+        self.prev_page_btn.clicked.connect(self.prev_page)
+        page_control_layout.addWidget(self.prev_page_btn)
+        
+        self.page_label = QLabel("1/1")
+        page_control_layout.addWidget(self.page_label)
+        
+        self.next_page_btn = QPushButton("下一页")
+        self.next_page_btn.clicked.connect(self.next_page)
+        page_control_layout.addWidget(self.next_page_btn)
+        
+        result_layout.addLayout(page_control_layout)
         result_group.setLayout(result_layout)
         splitter.addWidget(result_group)
         
@@ -769,14 +796,52 @@ class MainWindow(QMainWindow):
             )
             self.result_table.setRowHidden(row, not should_show)
 
+    def on_page_size_changed(self, value):
+        """处理每页显示数量变化"""
+        self.page_size = int(value)
+        self.current_page = 1
+        self.load_history_data()
+        
+    def prev_page(self):
+        """上一页"""
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.load_history_data()
+        
+    def next_page(self):
+        """下一页"""
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self.load_history_data()
+            
     def load_history_data(self):
         """加载历史数据到表格"""
         try:
             # 清空表格
             self.result_table.setRowCount(0)
             
-            # 加载历史记录
-            for account_id, data in self.config.history.items():
+            # 获取所有历史记录
+            history_items = list(self.config.history.items())
+            total_records = len(history_items)
+            
+            # 设置每页显示数量
+            self.page_size = int(self.page_size_combo.currentText())
+            
+            # 计算总页数
+            self.total_pages = max(1, (total_records + self.page_size - 1) // self.page_size)
+            
+            # 确保当前页在有效范围内
+            self.current_page = max(1, min(self.current_page, self.total_pages))
+            
+            # 计算当前页的数据范围
+            start_idx = (self.current_page - 1) * self.page_size
+            end_idx = min(start_idx + self.page_size, total_records)
+            
+            # 获取当前页的数据
+            current_page_items = history_items[start_idx:end_idx]
+            
+            # 显示数据
+            for account_id, data in current_page_items:
                 row_position = self.result_table.rowCount()
                 self.result_table.insertRow(row_position)
                 
@@ -785,15 +850,30 @@ class MainWindow(QMainWindow):
                 # 两步验证状态
                 self.result_table.setItem(row_position, 1, QTableWidgetItem('是' if data['has_2fa'] else '否'))
                 # 请求结果
-                self.result_table.setItem(row_position, 2, QTableWidgetItem(str(data['result'])))
+                result_item = QTableWidgetItem(str(data['result']))
+                if isinstance(data['result'], dict):
+                    result_item.setData(Qt.ItemDataRole.UserRole, json.dumps(data['result'], ensure_ascii=False))
+                self.result_table.setItem(row_position, 2, result_item)
                 # 请求时间
                 self.result_table.setItem(row_position, 3, QTableWidgetItem(str(data['request_time'])))
                 # 是否导入任务
                 self.result_table.setItem(row_position, 4, QTableWidgetItem('是' if data['imported_to_mission'] else '否'))
+            
+            # 更新页码显示
+            self.page_label.setText(f"{self.current_page}/{self.total_pages}")
+            
+            # 更新按钮状态
+            self.prev_page_btn.setEnabled(self.current_page > 1)
+            self.next_page_btn.setEnabled(self.current_page < self.total_pages)
+            
+            # 显示记录总数
+            self.append_log(f"当前显示第 {start_idx + 1} - {end_idx} 条记录，共 {total_records} 条")
                 
         except Exception as e:
-            print(f"加载历史数据时发生错误: {str(e)}")
-            QMessageBox.warning(self, "错误", f"加载历史数据失败: {str(e)}")
+            error_msg = f"加载历史数据时发生错误: {str(e)}"
+            print(error_msg)
+            self.append_log(error_msg)
+            QMessageBox.warning(self, "错误", error_msg)
 
 if __name__ == "__main__":
     # 禁用SSL警告
