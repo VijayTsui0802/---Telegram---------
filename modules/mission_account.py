@@ -288,7 +288,7 @@ class MissionAccountWorker(QObject):
                 'phone': account.get('name', ''),  # 使用name字段作为手机号
                 'username': account.get('name', ''),  # 同样使用name作为用户名
                 'has_2fa': False,  # 默认值
-                'status': 2,  # 默认状态为未知(2)
+                'status': self._convert_status(account.get('account_status')),  # 使用account_status字段
                 'success_count': account.get('msg_success_times', 0),  # 成功次数
                 'fail_count': account.get('msg_error_times', 0),  # 失败次数
                 'group': account.get('group_name', ''),  # 分组名称
@@ -363,9 +363,11 @@ class MissionAccountWorker(QObject):
         status_map = {
             'online': 0,      # 在线
             'offline': 1,     # 离线
-            '': 2            # 未知
+            'deleted': 2,     # 已删除
+            'unknown': 3,     # 未知
+            '': 3            # 空值也返回未知
         }
-        return status_map.get(status.lower(), 2)  # 默认返回未知(2)
+        return status_map.get(str(status).lower(), 3)  # 默认返回未知状态(3)
 
     def _convert_mission_status(self, status: str) -> int:
         """转换任务状态为数字"""

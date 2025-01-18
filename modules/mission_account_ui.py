@@ -367,35 +367,46 @@ class MissionAccountTab(QWidget):
                 account_status = {
                     0: '在线',
                     1: '离线',
-                    2: '未知'
-                }.get(account.get('account_status', 2), '未知')
+                    2: '已删除',
+                    3: '未知'
+                }.get(account.get('account_status', 3), '未知')  # 默认显示未知
                 self.account_table.setItem(row_position, 4, QTableWidgetItem(account_status))
                 
                 # 分组
                 self.account_table.setItem(row_position, 5, QTableWidgetItem(str(account.get('group', ''))))
                 
                 # 成功/失败次数
-                self.account_table.setItem(row_position, 6, QTableWidgetItem(str(account.get('success_count', 0))))
-                self.account_table.setItem(row_position, 7, QTableWidgetItem(str(account.get('fail_count', 0))))
+                self.account_table.setItem(row_position, 6, QTableWidgetItem(str(account.get('msg_success_times', 0))))
+                self.account_table.setItem(row_position, 7, QTableWidgetItem(str(account.get('msg_error_times', 0))))
                 
                 # 创建时间
-                created_at = account.get('created_at', '')
+                created_at = account.get('create_time_text', '')
+                if not created_at or created_at == '-':
+                    created_at = account.get('created_at', '')
                 if created_at:
                     try:
                         if isinstance(created_at, str):
-                            created_at = created_at.replace('Z', '+00:00')
-                            created_at = datetime.fromisoformat(created_at).strftime('%Y-%m-%d %H:%M:%S')
+                            if 'Z' in created_at:
+                                created_at = created_at.replace('Z', '+00:00')
+                                created_at = datetime.fromisoformat(created_at).strftime('%Y-%m-%d %H:%M:%S')
+                        elif isinstance(created_at, int):
+                            created_at = datetime.fromtimestamp(created_at).strftime('%Y-%m-%d %H:%M:%S')
                     except:
                         pass
                 self.account_table.setItem(row_position, 8, QTableWidgetItem(str(created_at)))
                 
                 # 更新时间
-                updated_at = account.get('updated_at', '')
+                updated_at = account.get('update_time_text', '')
+                if not updated_at or updated_at == '-':
+                    updated_at = account.get('updated_at', '')
                 if updated_at:
                     try:
                         if isinstance(updated_at, str):
-                            updated_at = updated_at.replace('Z', '+00:00')
-                            updated_at = datetime.fromisoformat(updated_at).strftime('%Y-%m-%d %H:%M:%S')
+                            if 'Z' in updated_at:
+                                updated_at = updated_at.replace('Z', '+00:00')
+                                updated_at = datetime.fromisoformat(updated_at).strftime('%Y-%m-%d %H:%M:%S')
+                        elif isinstance(updated_at, int):
+                            updated_at = datetime.fromtimestamp(updated_at).strftime('%Y-%m-%d %H:%M:%S')
                     except:
                         pass
                 self.account_table.setItem(row_position, 9, QTableWidgetItem(str(updated_at)))
@@ -431,10 +442,10 @@ class MissionAccountTab(QWidget):
     def set_row_color(self, row: int, status: int):
         """设置行颜色"""
         colors = {
-            0: QColor("#ffffff"),  # 未开始 - 白色
-            1: QColor("#e3f2fd"),  # 进行中 - 浅蓝色
-            2: QColor("#c8e6c9"),  # 已完成 - 浅绿色
-            3: QColor("#ffcdd2")   # 已失败 - 浅红色
+            0: QColor("#c8e6c9"),  # 在线 - 浅绿色
+            1: QColor("#ffcdd2"),  # 离线 - 浅红色
+            2: QColor("#ffecb3"),  # 已删除 - 浅黄色
+            3: QColor("#ffffff")   # 未知 - 白色
         }
         
         color = colors.get(status, QColor("#ffffff"))
