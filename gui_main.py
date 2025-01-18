@@ -2,6 +2,7 @@ import sys
 import json
 import time
 import requests
+import threading
 import configparser
 from pathlib import Path
 from PyQt6.QtWidgets import (
@@ -17,6 +18,120 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QSize
 from modules import MissionAccountTab, ConfigTab, MissionAddTab
 from modules.database import Database
+
+class ThreadPoolManager:
+    """线程池管理器"""
+    def __init__(self):
+        self.workers = []  # 活动的工作线程
+        self.threads = []  # 线程列表
+        self.is_running = True
+        self.results_lock = threading.Lock()
+        self.results = {}  # 存储结果
+        
+    def add_worker(self, worker, thread):
+        """添加工作线程"""
+        self.workers.append(worker)
+        self.threads.append(thread)
+        
+    def stop_all(self):
+        """停止所有线程"""
+        self.is_running = False
+        for worker in self.workers:
+            worker.stop()
+        
+    def wait_all(self):
+        """等待所有线程完成"""
+        for thread in self.threads:
+            if thread.isRunning():
+                thread.quit()
+                thread.wait()
+                
+    def clear(self):
+        """清理资源"""
+        self.workers.clear()
+        self.threads.clear()
+        self.results.clear()
+
+class RequestWorker(QObject):
+    """请求处理线程"""
+    request_finished = pyqtSignal(dict)  # 请求完成信号
+    progress_updated = pyqtSignal(int, int)   # 进度更新信号(线程ID, 进度)
+    log_message = pyqtSignal(str)        # 日志信息信号
+
+    def __init__(self, worker_id, start_id, end_id, interval, cookie, token, history):
+        super().__init__()
+        self.worker_id = worker_id
+        self.start_id = start_id
+        self.end_id = end_id
+        self.interval = interval
+        self.cookie = cookie
+        self.token = token
+        self.history = history
+        self.is_running = True
+
+    def run(self):
+        """运行线程"""
+        total = self.end_id - self.start_id + 1
+        current = 0
+
+        self.log_message.emit(f"线程 {self.worker_id} 开始处理: {self.start_id} - {self.end_id}")
+
+        for id in range(self.start_id, self.end_id + 1):
+            if not self.is_running:
+                break
+
+            # 检查是否已经请求过
+            if str(id) in self.history:
+                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 已经请求过，跳过")
+                current += 1
+                progress = int((current / total) * 100)
+                self.progress_updated.emit(self.worker_id, progress)
+                continue
+
+            try:
+                response = self.make_request(id)
+                self.request_finished.emit(response)
+                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 请求完成")
+            except Exception as e:
+                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 请求失败: {str(e)}")
+
+            current += 1
+            progress = int((current / total) * 100)
+            self.progress_updated.emit(self.worker_id, progress)
+            
+            if self.is_running:
+                time.sleep(self.interval)
+
+    def make_request(self, id):
+        """发送单个请求并返回响应"""
+        url = f"http://konk.cc/tgcloud/account/account_mission"
+        
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,th;q=0.8,zh-TW;q=0.7",
+            "Connection": "keep-alive",
+            "Cookie": f"PHPSESSID={self.cookie}",
+            "Referer": "http://konk.cc/tgcloud_pc/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "X-KL-Ajax-Request": "Ajax_Request",
+            "token": self.token
+        }
+        
+        params = {
+            "id": id,
+            "page": 1,
+            "limit": 100
+        }
+        
+        response = requests.get(url, headers=headers, params=params, verify=False)
+        response_data = response.json()
+        # 在响应中添加请求参数
+        response_data['params'] = params
+        return response_data
+
+    def stop(self):
+        """停止线程"""
+        self.is_running = False
 
 class Config:
     """配置管理类"""
@@ -185,84 +300,6 @@ class Config:
         self._history[str(id)] = history
         return history
 
-class RequestWorker(QObject):
-    """请求处理线程"""
-    request_finished = pyqtSignal(dict)  # 请求完成信号
-    progress_updated = pyqtSignal(int)   # 进度更新信号
-    log_message = pyqtSignal(str)        # 日志信息信号
-
-    def __init__(self, start_id, end_id, interval, cookie, token, history):
-        super().__init__()
-        self.start_id = start_id
-        self.end_id = end_id
-        self.interval = interval
-        self.cookie = cookie
-        self.token = token
-        self.history = history
-        self.is_running = True
-
-    def run(self):
-        """运行线程"""
-        total = self.end_id - self.start_id + 1
-        current = 0
-
-        for id in range(self.start_id, self.end_id + 1):
-            if not self.is_running:
-                break
-
-            # 检查是否已经请求过
-            if str(id) in self.history:
-                self.log_message.emit(f"ID {id} 已经请求过，跳过")
-                current += 1
-                progress = int((current / total) * 100)
-                self.progress_updated.emit(progress)
-                continue
-
-            try:
-                response = self.make_request(id)
-                self.request_finished.emit(response)
-                self.log_message.emit(f"ID {id} 请求完成: {json.dumps(response, ensure_ascii=False)}")
-            except Exception as e:
-                self.log_message.emit(f"ID {id} 请求失败: {str(e)}")
-
-            current += 1
-            progress = int((current / total) * 100)
-            self.progress_updated.emit(progress)
-            
-            if self.is_running:
-                time.sleep(self.interval)
-
-    def make_request(self, id):
-        """发送单个请求并返回响应"""
-        url = f"http://konk.cc/tgcloud/account/account_mission"
-        
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9,th;q=0.8,zh-TW;q=0.7",
-            "Connection": "keep-alive",
-            "Cookie": f"PHPSESSID={self.cookie}",
-            "Referer": "http://konk.cc/tgcloud_pc/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "X-KL-Ajax-Request": "Ajax_Request",
-            "token": self.token
-        }
-        
-        params = {
-            "id": id,
-            "page": 1,
-            "limit": 100
-        }
-        
-        response = requests.get(url, headers=headers, params=params, verify=False)
-        response_data = response.json()
-        # 在响应中添加请求参数
-        response_data['params'] = params
-        return response_data
-
-    def stop(self):
-        """停止线程"""
-        self.is_running = False
-
 class MainWindow(QMainWindow):
     """主窗口"""
     def __init__(self):
@@ -335,8 +372,8 @@ class MainWindow(QMainWindow):
         self.start_id_spinbox = QSpinBox()
         self.start_id_spinbox.setRange(0, 999999999)
         self.start_id_spinbox.setValue(11312122)
-        self.start_id_spinbox.setMinimumWidth(150)  # 设置最小宽度
-        self.start_id_spinbox.setFixedWidth(150)    # 设置固定宽度
+        self.start_id_spinbox.setMinimumWidth(150)
+        self.start_id_spinbox.setFixedWidth(150)
         start_id_layout.addWidget(self.start_id_spinbox)
         task_layout.addLayout(start_id_layout)
         
@@ -346,8 +383,8 @@ class MainWindow(QMainWindow):
         self.end_id_spinbox = QSpinBox()
         self.end_id_spinbox.setRange(0, 999999999)
         self.end_id_spinbox.setValue(11312122)
-        self.end_id_spinbox.setMinimumWidth(150)    # 设置最小宽度
-        self.end_id_spinbox.setFixedWidth(150)      # 设置固定宽度
+        self.end_id_spinbox.setMinimumWidth(150)
+        self.end_id_spinbox.setFixedWidth(150)
         end_id_layout.addWidget(self.end_id_spinbox)
         task_layout.addLayout(end_id_layout)
         
@@ -360,8 +397,24 @@ class MainWindow(QMainWindow):
         interval_layout.addWidget(self.interval_spinbox)
         task_layout.addLayout(interval_layout)
         
+        # 线程数配置
+        thread_layout = QHBoxLayout()
+        thread_layout.addWidget(QLabel("线程数:"))
+        self.thread_spinbox = QSpinBox()
+        self.thread_spinbox.setRange(1, 10)
+        self.thread_spinbox.setValue(3)
+        thread_layout.addWidget(self.thread_spinbox)
+        task_layout.addLayout(thread_layout)
+        
         task_group.setLayout(task_layout)
         layout.addWidget(task_group)
+        
+        # 线程进度区域
+        self.thread_progress_group = QGroupBox("线程进度")
+        self.thread_progress_layout = QVBoxLayout()
+        self.thread_progress_bars = {}  # 存储线程进度条
+        self.thread_progress_group.setLayout(self.thread_progress_layout)
+        layout.addWidget(self.thread_progress_group)
         
         # 按钮区域
         button_layout = QHBoxLayout()
@@ -512,56 +565,72 @@ class MainWindow(QMainWindow):
         # 清空表格
         self.result_table.setRowCount(0)
         
-        # 加载已有的历史记录到表格
+        # 清空线程进度条
+        for widget in self.thread_progress_bars.values():
+            widget.deleteLater()
+        self.thread_progress_bars.clear()
+        
+        # 初始化线程池
+        self.thread_pool = ThreadPoolManager()
+        
+        # 计算每个线程的ID范围
         start_id = self.start_id_spinbox.value()
         end_id = self.end_id_spinbox.value()
-        self.append_log(f"设置ID范围: {start_id} - {end_id}")
+        thread_count = self.thread_spinbox.value()
+        interval = self.interval_spinbox.value()
         
-        for id in range(start_id, end_id + 1):
-            history = self.config.get_history(str(id))
-            if history:
-                row_position = self.result_table.rowCount()
-                self.result_table.insertRow(row_position)
-                
-                # ID
-                self.result_table.setItem(row_position, 0, QTableWidgetItem(str(id)))
-                # 两步验证状态
-                self.result_table.setItem(row_position, 1, QTableWidgetItem('是' if history['has_2fa'] else '否'))
-                # 请求结果
-                self.result_table.setItem(row_position, 2, QTableWidgetItem(str(history['result'])))
-                # 请求时间
-                self.result_table.setItem(row_position, 3, QTableWidgetItem(str(history['request_time'])))
-                # 是否导入任务
-                self.result_table.setItem(row_position, 4, QTableWidgetItem('是' if history['imported_to_mission'] else '否'))
+        id_range = end_id - start_id + 1
+        ids_per_thread = id_range // thread_count
+        remainder = id_range % thread_count
         
+        current_start = start_id
+        
+        # 创建并启动工作线程
+        for i in range(thread_count):
+            # 计算当前线程的ID范围
+            thread_ids = ids_per_thread + (1 if i < remainder else 0)
+            thread_end = current_start + thread_ids - 1
+            
+            # 创建进度条
+            progress_layout = QHBoxLayout()
+            progress_layout.addWidget(QLabel(f"线程 {i+1}:"))
+            progress_bar = QProgressBar()
+            progress_bar.setTextVisible(True)
+            self.thread_progress_bars[i+1] = progress_bar
+            progress_layout.addWidget(progress_bar)
+            self.thread_progress_layout.addLayout(progress_layout)
+            
+            # 创建工作线程
+            worker = RequestWorker(
+                worker_id=i+1,
+                start_id=current_start,
+                end_id=thread_end,
+                interval=interval,
+                cookie=auth_config['cookie'],
+                token=auth_config['token'],
+                history=self.config.history
+            )
+            
+            # 创建线程
+            thread = QThread()
+            worker.moveToThread(thread)
+            
+            # 连接信号
+            worker.request_finished.connect(self.handle_request_finished)
+            worker.progress_updated.connect(self.update_thread_progress)
+            worker.log_message.connect(self.append_log)
+            thread.started.connect(worker.run)
+            
+            # 添加到线程池
+            self.thread_pool.add_worker(worker, thread)
+            
+            # 启动线程
+            thread.start()
+            
+            current_start = thread_end + 1
+            
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-        self.progress_bar.setValue(0)
-
-        # 创建工作线程和worker
-        self.work_thread = QThread()
-        self.worker = RequestWorker(
-            start_id,
-            end_id,
-            self.interval_spinbox.value(),
-            auth_config['cookie'],
-            auth_config['token'],
-            self.config.history
-        )
-        
-        # 将worker移动到工作线程
-        self.worker.moveToThread(self.work_thread)
-        
-        # 连接信号
-        self.worker.request_finished.connect(self.handle_request_finished)
-        self.worker.progress_updated.connect(self.progress_bar.setValue)
-        self.worker.log_message.connect(self.append_log)
-        self.work_thread.finished.connect(self.handle_worker_finished)
-        self.work_thread.started.connect(self.worker.run)
-        
-        # 启动线程
-        self.work_thread.start()
-        self.append_log("工作线程已启动")
 
     def validate_inputs(self):
         """验证输入"""
@@ -576,18 +645,16 @@ class MainWindow(QMainWindow):
 
     def stop_requests(self):
         """停止请求"""
-        if self.worker:
-            self.worker.stop()
-            self.append_log("正在停止请求...")
+        if hasattr(self, 'thread_pool'):
+            self.thread_pool.stop_all()
+            self.thread_pool.wait_all()
+            self.append_log("正在停止所有线程...")
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
             
             # 清理资源
-            if self.work_thread and self.work_thread.isRunning():
-                self.work_thread.quit()
-                self.work_thread.wait()
-            self.worker = None
-            self.work_thread = None
+            self.thread_pool.clear()
+            delattr(self, 'thread_pool')
 
     def handle_request_finished(self, response):
         """处理请求完成的响应"""
@@ -663,18 +730,10 @@ class MainWindow(QMainWindow):
                 self.result_table.setItem(row_position, 3, QTableWidgetItem(current_time))
                 self.result_table.setItem(row_position, 4, QTableWidgetItem("否"))
 
-    def handle_worker_finished(self):
-        """处理工作线程完成"""
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.append_log("请求任务已完成")
-        
-        # 清理资源
-        if self.work_thread and self.work_thread.isRunning():
-            self.work_thread.quit()
-            self.work_thread.wait()
-        self.worker = None
-        self.work_thread = None
+    def update_thread_progress(self, thread_id, progress):
+        """更新线程进度"""
+        if thread_id in self.thread_progress_bars:
+            self.thread_progress_bars[thread_id].setValue(progress)
 
     def append_log(self, message):
         """添加日志"""
