@@ -16,127 +16,95 @@ from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QSize
 from modules import MissionAccountTab, ConfigTab, MissionAddTab
+from modules.database import Database
 
 class Config:
     """配置管理类"""
     def __init__(self):
-        self.config = configparser.ConfigParser()
-        self.config_file = Path("config.ini")
+        self.db = Database()
         self.history_file = Path("request_history.json")
-        self.history = self.load_history()
-        self.load_config()
+        self._history = {}  # 添加内存缓存
+        self.migrate_history()
+        self.load_history()  # 加载历史记录到内存
+
+    def migrate_history(self):
+        """迁移历史数据"""
+        if self.history_file.exists():
+            self.db.migrate_from_json(str(self.history_file))
+            # 迁移完成后可以重命名历史文件
+            self.history_file.rename(self.history_file.with_suffix('.json.bak'))
 
     def load_history(self):
-        """加载历史记录"""
+        """从数据库加载历史记录到内存"""
         try:
-            if self.history_file.exists():
-                with open(self.history_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            return {}
+            # 获取所有账号
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT a.account_id, a.has_2fa, a.status, 
+                           v.code, v.send_time, v.created_at
+                    FROM accounts a
+                    LEFT JOIN verification_codes v ON a.account_id = v.account_id
+                    AND v.created_at = (
+                        SELECT MAX(created_at)
+                        FROM verification_codes
+                        WHERE account_id = a.account_id
+                    )
+                ''')
+                rows = cursor.fetchall()
+                
+                for row in rows:
+                    account_id, has_2fa, status, code, send_time, created_at = row
+                    self._history[str(account_id)] = {
+                        'result': code if code else '',
+                        'has_2fa': bool(has_2fa),
+                        'request_time': created_at if created_at else '',
+                        'imported_to_mission': status == 1
+                    }
         except Exception as e:
-            print(f"加载历史记录失败: {str(e)}")
-            return {}
+            print(f"加载历史记录失败: {e}")
 
-    def save_history(self):
-        """保存历史记录"""
-        try:
-            with open(self.history_file, 'w', encoding='utf-8') as f:
-                json.dump(self.history, f, ensure_ascii=False, indent=2)
-            print("保存历史记录成功")
-        except Exception as e:
-            print(f"保存历史记录失败: {str(e)}")
-
-    def add_history(self, id, result, has_2fa, request_time):
-        """添加历史记录"""
-        self.history[str(id)] = {
-            'result': result,
-            'has_2fa': has_2fa,
-            'request_time': request_time,
-            'imported_to_mission': False  # 添加导入任务状态字段
-        }
-        self.save_history()
-        
-    def mark_as_imported(self, id):
-        """标记账号为已导入任务"""
-        if str(id) in self.history:
-            self.history[str(id)]['imported_to_mission'] = True
-            self.save_history()
-            
-    def is_imported(self, id) -> bool:
-        """检查账号是否已导入任务"""
-        return self.history.get(str(id), {}).get('imported_to_mission', False)
-
-    def get_history(self, id):
-        """获取历史记录"""
-        return self.history.get(str(id))
+    @property
+    def history(self):
+        """提供历史记录访问接口"""
+        return self._history
 
     def load_config(self):
         """加载配置"""
-        if self.config_file.exists():
-            self.config.read(self.config_file, encoding='utf-8')
-            print(f"加载配置文件: {self.config_file}")
-            print(f"当前Auth配置: {dict(self.config['Auth']) if 'Auth' in self.config else 'None'}")
-        else:
-            print("配置文件不存在，创建默认配置")
+        # 检查是否需要初始化默认配置
+        if self.db.get_config('initialized') is None:
             self.create_default_config()
 
-    def _ensure_sections(self):
-        """确保所有必要的配置节点存在"""
-        if not self.config.has_section('General'):
-            self.config['General'] = {
+    def create_default_config(self):
+        """创建默认配置"""
+        default_configs = {
+            'General': {
                 'start_id': '11312122',
                 'end_id': '11312122',
                 'request_interval': '1'
-            }
-        
-        if not self.config.has_section('Auth'):
-            self.config['Auth'] = {
+            },
+            'Auth': {
                 'cookie': '',
                 'token': ''
-            }
-        
-        if not self.config.has_section('Request'):
-            self.config['Request'] = {
+            },
+            'Request': {
                 'url': 'http://konk.cc/tgcloud/account/account_mission',
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 'verify_ssl': 'False'
             }
+        }
         
-        self.save_config()
-
-    def create_default_config(self):
-        """创建默认配置"""
-        self.config['General'] = {
-            'start_id': '11312122',
-            'end_id': '11312122',
-            'request_interval': '1'
-        }
-        self.config['Auth'] = {
-            'cookie': '',
-            'token': ''
-        }
-        self.config['Request'] = {
-            'url': 'http://konk.cc/tgcloud/account/account_mission',
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'verify_ssl': 'False'
-        }
-        self.save_config()
-
-    def save_config(self):
-        """保存配置"""
-        try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                self.config.write(f)
-            print(f"保存配置成功: {dict(self.config['Auth']) if 'Auth' in self.config else 'None'}")
-        except Exception as e:
-            print(f"保存配置失败: {str(e)}")
+        for section, values in default_configs.items():
+            for key, value in values.items():
+                self.db.save_config(f"{section}.{key}", value)
+        
+        self.db.save_config('initialized', True)
 
     def get(self, section, key, fallback=None):
         """获取配置值"""
         try:
-            value = self.config.get(section, key, fallback=fallback)
-            print(f"获取配置 [{section}][{key}] = {value}")
-            return value
+            value = self.db.get_config(f"{section}.{key}")
+            return value if value is not None else fallback
         except Exception as e:
             print(f"获取配置失败 [{section}][{key}]: {str(e)}")
             return fallback
@@ -144,13 +112,78 @@ class Config:
     def set(self, section, key, value):
         """设置配置值"""
         try:
-            if not self.config.has_section(section):
-                self.config.add_section(section)
-            self.config.set(section, key, str(value))
-            print(f"设置配置 [{section}][{key}] = {value}")
-            self.save_config()
+            self.db.save_config(f"{section}.{key}", value)
         except Exception as e:
             print(f"设置配置失败 [{section}][{key}]: {str(e)}")
+
+    def add_history(self, id, result, has_2fa, request_time):
+        """添加历史记录"""
+        account_data = {
+            'account_id': str(id),
+            'has_2fa': has_2fa,
+            'status': 0
+        }
+        self.db.save_account(account_data)
+        
+        if isinstance(result, dict) and 'code' in result:
+            self.db.save_verification_code(str(id), result['code'], request_time)
+        
+        # 更新内存缓存
+        self._history[str(id)] = {
+            'result': result['code'] if isinstance(result, dict) and 'code' in result else result,
+            'has_2fa': has_2fa,
+            'request_time': request_time,
+            'imported_to_mission': False
+        }
+        
+    def mark_as_imported(self, id):
+        """标记账号为已导入任务"""
+        account_data = {
+            'account_id': str(id),
+            'status': 1
+        }
+        self.db.save_account(account_data)
+        
+        # 更新内存缓存
+        if str(id) in self._history:
+            self._history[str(id)]['imported_to_mission'] = True
+            
+    def is_imported(self, id) -> bool:
+        """检查账号是否已导入任务"""
+        account = self.db.get_account(str(id))
+        is_imported = account is not None and account.get('status', 0) == 1
+        
+        # 更新内存缓存
+        if str(id) in self._history:
+            self._history[str(id)]['imported_to_mission'] = is_imported
+            
+        return is_imported
+
+    def get_history(self, id):
+        """获取历史记录"""
+        # 优先从内存缓存获取
+        if str(id) in self._history:
+            return self._history[str(id)]
+            
+        # 如果内存中没有，从数据库获取
+        account = self.db.get_account(str(id))
+        if not account:
+            return None
+            
+        code_info = self.db.get_latest_verification_code(str(id))
+        
+        # 构建历史记录并缓存
+        history = {
+            'account_id': account['account_id'],
+            'has_2fa': account['has_2fa'],
+            'status': account['status'],
+            'result': code_info['code'] if code_info else '',
+            'request_time': code_info['created_at'] if code_info else '',
+            'imported_to_mission': account['status'] == 1
+        }
+        
+        self._history[str(id)] = history
+        return history
 
 class RequestWorker(QObject):
     """请求处理线程"""
@@ -485,7 +518,7 @@ class MainWindow(QMainWindow):
         self.append_log(f"设置ID范围: {start_id} - {end_id}")
         
         for id in range(start_id, end_id + 1):
-            history = self.config.get_history(id)
+            history = self.config.get_history(str(id))
             if history:
                 row_position = self.result_table.rowCount()
                 self.result_table.insertRow(row_position)
@@ -495,9 +528,11 @@ class MainWindow(QMainWindow):
                 # 两步验证状态
                 self.result_table.setItem(row_position, 1, QTableWidgetItem('是' if history['has_2fa'] else '否'))
                 # 请求结果
-                self.result_table.setItem(row_position, 2, QTableWidgetItem(history['result']))
+                self.result_table.setItem(row_position, 2, QTableWidgetItem(str(history['result'])))
                 # 请求时间
-                self.result_table.setItem(row_position, 3, QTableWidgetItem(history['request_time']))
+                self.result_table.setItem(row_position, 3, QTableWidgetItem(str(history['request_time'])))
+                # 是否导入任务
+                self.result_table.setItem(row_position, 4, QTableWidgetItem('是' if history['imported_to_mission'] else '否'))
         
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -682,20 +717,20 @@ class MainWindow(QMainWindow):
             self.result_table.setRowCount(0)
             
             # 加载历史记录
-            for id, data in self.config.history.items():
+            for account_id, data in self.config.history.items():
                 row_position = self.result_table.rowCount()
                 self.result_table.insertRow(row_position)
                 
                 # ID
-                self.result_table.setItem(row_position, 0, QTableWidgetItem(str(id)))
+                self.result_table.setItem(row_position, 0, QTableWidgetItem(str(account_id)))
                 # 两步验证状态
                 self.result_table.setItem(row_position, 1, QTableWidgetItem('是' if data['has_2fa'] else '否'))
                 # 请求结果
-                self.result_table.setItem(row_position, 2, QTableWidgetItem(data['result']))
+                self.result_table.setItem(row_position, 2, QTableWidgetItem(str(data['result'])))
                 # 请求时间
-                self.result_table.setItem(row_position, 3, QTableWidgetItem(data['request_time']))
+                self.result_table.setItem(row_position, 3, QTableWidgetItem(str(data['request_time'])))
                 # 是否导入任务
-                self.result_table.setItem(row_position, 4, QTableWidgetItem('是' if data.get('imported_to_mission', False) else '否'))
+                self.result_table.setItem(row_position, 4, QTableWidgetItem('是' if data['imported_to_mission'] else '否'))
                 
         except Exception as e:
             print(f"加载历史数据时发生错误: {str(e)}")

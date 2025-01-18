@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from datetime import datetime
 from .mission_account import MissionAccountWorker
 from PyQt6.QtGui import QColor
+from .database import Database
 
 class CodeWorker(QThread):
     """验证码获取工作线程"""
@@ -46,9 +47,67 @@ class MissionAccountTab(QWidget):
         self.total_pages = 1
         self.all_accounts = []  # 存储所有账号数据
         self.code_workers = []  # 存储验证码获取线程
+        self.db = Database()  # 添加数据库实例
         self.log_message_signal.connect(self.append_log)  # 连接信号到日志追加方法
         self.init_ui()
+        self.load_data_from_db()  # 初始化时加载数据库数据
         
+    def load_data_from_db(self):
+        """从数据库加载数据"""
+        try:
+            # 获取所有账号数据
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT a.*, 
+                           v.code as verification_code, 
+                           v.send_time as code_send_time,
+                           v.created_at as code_created_at
+                    FROM accounts a
+                    LEFT JOIN (
+                        SELECT account_id, code, send_time, created_at
+                        FROM verification_codes vc1
+                        WHERE created_at = (
+                            SELECT MAX(created_at)
+                            FROM verification_codes vc2
+                            WHERE vc2.account_id = vc1.account_id
+                        )
+                    ) v ON a.account_id = v.account_id
+                    ORDER BY a.created_at DESC
+                ''')
+                
+                rows = cursor.fetchall()
+                self.all_accounts = []
+                
+                for row in rows:
+                    account = {
+                        'id': row[0],
+                        'account_id': row[1],
+                        'phone': row[2],
+                        'username': row[3],
+                        'has_2fa': bool(row[4]),
+                        'status': row[5],
+                        'created_at': row[6],
+                        'updated_at': row[7],
+                        'verification_code': {
+                            'code': row[8],
+                            'send_time': row[9],
+                            'created_at': row[10]
+                        } if row[8] else {}
+                    }
+                    self.all_accounts.append(account)
+                
+                # 更新总页数
+                self.total_pages = (len(self.all_accounts) + self.page_size - 1) // self.page_size
+                self.current_page = 1
+                
+                # 更新表格显示
+                self.update_table_display()
+                self.log_message(f"从数据库加载了 {len(self.all_accounts)} 条记录")
+                
+        except Exception as e:
+            self.log_message(f"从数据库加载数据失败: {str(e)}")
+
     def init_ui(self):
         """初始化UI"""
         layout = QVBoxLayout()
@@ -311,72 +370,119 @@ class MissionAccountTab(QWidget):
             
     def update_table_display(self):
         """更新表格显示"""
-        # 清空表格
-        self.account_table.setRowCount(0)
+        try:
+            # 清空表格
+            self.account_table.setRowCount(0)
+            
+            if not self.all_accounts:
+                self.log_message("没有数据可显示")
+                return
+            
+            # 计算当前页的数据范围
+            start_idx = (self.current_page - 1) * self.page_size
+            end_idx = min(start_idx + self.page_size, len(self.all_accounts))
+            
+            # 显示当前页的数据
+            for idx, account in enumerate(self.all_accounts[start_idx:end_idx], start=1):
+                row_position = self.account_table.rowCount()
+                self.account_table.insertRow(row_position)
+                
+                # 序号
+                self.account_table.setItem(row_position, 0, QTableWidgetItem(str(start_idx + idx)))
+                
+                # 账号ID
+                self.account_table.setItem(row_position, 1, QTableWidgetItem(str(account.get('account_id', ''))))
+                
+                # 账号名称
+                self.account_table.setItem(row_position, 2, QTableWidgetItem(str(account.get('username', ''))))
+                
+                # 任务状态
+                status_text = {
+                    0: '未开始',
+                    1: '进行中',
+                    2: '已完成',
+                    3: '已失败'
+                }.get(account.get('status', 0), '未知')
+                self.account_table.setItem(row_position, 3, QTableWidgetItem(status_text))
+                
+                # 账号状态
+                account_status = {
+                    0: '正常',
+                    1: '已禁用',
+                    2: '已删除'
+                }.get(account.get('status', 0), '未知')
+                self.account_table.setItem(row_position, 4, QTableWidgetItem(account_status))
+                
+                # 分组
+                self.account_table.setItem(row_position, 5, QTableWidgetItem(str(account.get('group', ''))))
+                
+                # 成功/失败次数
+                self.account_table.setItem(row_position, 6, QTableWidgetItem(str(account.get('success_count', 0))))
+                self.account_table.setItem(row_position, 7, QTableWidgetItem(str(account.get('fail_count', 0))))
+                
+                # 创建时间
+                created_at = account.get('created_at', '')
+                if created_at:
+                    try:
+                        if isinstance(created_at, str):
+                            created_at = created_at.replace('Z', '+00:00')
+                            created_at = datetime.fromisoformat(created_at).strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        pass
+                self.account_table.setItem(row_position, 8, QTableWidgetItem(str(created_at)))
+                
+                # 更新时间
+                updated_at = account.get('updated_at', '')
+                if updated_at:
+                    try:
+                        if isinstance(updated_at, str):
+                            updated_at = updated_at.replace('Z', '+00:00')
+                            updated_at = datetime.fromisoformat(updated_at).strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        pass
+                self.account_table.setItem(row_position, 9, QTableWidgetItem(str(updated_at)))
+                
+                # 两步密码
+                self.account_table.setItem(row_position, 10, QTableWidgetItem(str(account.get('two_step_password', ''))))
+                
+                # 验证码和发送时间
+                code_info = account.get('verification_code', {})
+                self.account_table.setItem(row_position, 11, QTableWidgetItem(str(code_info.get('code', ''))))
+                send_time = code_info.get('send_time', '')
+                if send_time:
+                    try:
+                        send_time = datetime.fromtimestamp(send_time).strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        pass
+                self.account_table.setItem(row_position, 12, QTableWidgetItem(str(send_time)))
+                
+                # 根据状态设置行颜色
+                self.set_row_color(row_position, account.get('status', 0))
+            
+            # 更新页码显示
+            self.page_label.setText(f"{self.current_page}/{self.total_pages}")
+            
+            # 更新按钮状态
+            self.prev_page_btn.setEnabled(self.current_page > 1)
+            self.next_page_btn.setEnabled(self.current_page < self.total_pages)
+                
+        except Exception as e:
+            self.log_message(f"更新表格显示时出错: {str(e)}")
+            
+    def set_row_color(self, row: int, status: int):
+        """设置行颜色"""
+        colors = {
+            0: QColor("#ffffff"),  # 未开始 - 白色
+            1: QColor("#e3f2fd"),  # 进行中 - 浅蓝色
+            2: QColor("#c8e6c9"),  # 已完成 - 浅绿色
+            3: QColor("#ffcdd2")   # 已失败 - 浅红色
+        }
         
-        # 计算当前页要显示的数据范围
-        start_idx = (self.current_page - 1) * self.page_size
-        end_idx = min(start_idx + self.page_size, len(self.all_accounts))
-        
-        # 显示当前页的数据
-        for idx, account in enumerate(self.all_accounts[start_idx:end_idx], start=1):
-            row = self.account_table.rowCount()
-            self.account_table.insertRow(row)
-            
-            # 设置单元格数据
-            self.account_table.setItem(row, 0, QTableWidgetItem(str(idx)))  # 序号
-            self.account_table.setItem(row, 1, QTableWidgetItem(str(account['account_id'])))  # 账号ID
-            self.account_table.setItem(row, 2, QTableWidgetItem(account['name']))  # 账号名称
-            self.account_table.setItem(row, 3, QTableWidgetItem(account['status_text']))  # 任务状态
-            self.account_table.setItem(row, 4, QTableWidgetItem(account['account_status']))  # 账号状态
-            self.account_table.setItem(row, 5, QTableWidgetItem(account['group_name']))  # 分组
-            
-            # 使用 receive_times 和 reply_times 替代 msg_success_times 和 msg_error_times
-            self.account_table.setItem(row, 6, QTableWidgetItem(str(account.get('receive_times', 0))))  # 成功次数
-            self.account_table.setItem(row, 7, QTableWidgetItem(str(account.get('reply_times', 0))))  # 失败次数
-            
-            self.account_table.setItem(row, 8, QTableWidgetItem(account['create_time_text']))  # 创建时间
-            self.account_table.setItem(row, 9, QTableWidgetItem(account['update_time_text']))  # 更新时间
-            
-            # 从历史记录中获取两步密码信息
-            two_step_password = ""
-            if self.config and hasattr(self.config, 'get_history'):
-                history = self.config.get_history(account['account_id'])
-                if history and '设置两步密码' in history['result']:
-                    import re
-                    match = re.search(r'【(\d+)】', history['result'])
-                    if match:
-                        two_step_password = match.group(1)
-            self.account_table.setItem(row, 10, QTableWidgetItem(two_step_password))  # 两步密码
-            
-            # 验证码和发送时间初始为空，将由update_code_and_time方法更新
-            self.account_table.setItem(row, 11, QTableWidgetItem(""))  # 验证码
-            self.account_table.setItem(row, 12, QTableWidgetItem(""))  # 发送时间
-            
-            # 设置每个单元格为不可编辑
-            for col in range(self.account_table.columnCount()):
-                item = self.account_table.item(row, col)
-                if item:
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    
-                    # 设置账号状态的颜色
-                    if col == 4:  # 账号状态列
-                        if account['account_status'] == 'online':
-                            item.setBackground(QColor("#e6ffe6"))  # 在线-浅绿色
-                        elif account['account_status'] == 'offline':
-                            item.setBackground(QColor("#ffe6e6"))  # 离线-浅红色
-                    
-                    # 设置任务状态的颜色
-                    if col == 3:  # 任务状态列
-                        status_colors = {
-                            "not_start": QColor("#ffffff"),  # 未开始-白色
-                            "running": QColor("#e6f3ff"),    # 运行中-浅蓝色
-                            "finished": QColor("#e6ffe6"),   # 已完成-浅绿色
-                            "error": QColor("#ffe6e6")       # 错误-浅红色
-                        }
-                        status = account['status'].lower()
-                        if status in status_colors:
-                            item.setBackground(status_colors[status])
+        color = colors.get(status, QColor("#ffffff"))
+        for col in range(self.account_table.columnCount()):
+            item = self.account_table.item(row, col)
+            if item:
+                item.setBackground(color)
         
         # 更新页码显示
         self.page_label.setText(f"{self.current_page}/{self.total_pages}")
@@ -405,20 +511,33 @@ class MissionAccountTab(QWidget):
         
     def process_finished(self, response: dict):
         """处理请求完成的响应"""
-        if "error" in response:
-            self.log_message(f"错误: {response['error']}")
-            return
+        try:
+            if response.get('code') != 1:
+                self.log_message(f"获取数据失败: {response.get('msg', '未知错误')}")
+                return
+                
+            data = response.get('data', {})
             
-        # 更新账号表格
-        if 'data' in response and 'data' in response['data']:
-            self.all_accounts = response['data']['data']
+            # 将新数据添加到现有数据中
+            new_accounts = data.get('data', [])
+            if new_accounts:
+                # 使用account_id作为唯一标识更新数据
+                account_map = {acc['account_id']: acc for acc in self.all_accounts}
+                for new_acc in new_accounts:
+                    account_map[new_acc['account_id']] = new_acc
+                self.all_accounts = list(account_map.values())
+            
+            # 更新总页数
             self.total_pages = (len(self.all_accounts) + self.page_size - 1) // self.page_size
-            self.current_page = 1
+            
+            # 更新表格显示
             self.update_table_display()
-        
-        # 重置按钮状态
-        self.cleanup()
-        
+            
+            self.log_message(f"成功更新数据，共 {len(self.all_accounts)} 条记录")
+            
+        except Exception as e:
+            self.log_message(f"处理响应数据时出错: {str(e)}")
+            
     def cleanup(self):
         """清理资源并重置UI"""
         self.start_button.setEnabled(True)

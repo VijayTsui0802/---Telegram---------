@@ -6,6 +6,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 import re
 from PyQt6.QtWidgets import QTableWidget, QHeaderView
 from PyQt6.QtCore import Qt
+from .database import Database
 
 class MissionAccountWorker(QObject):
     """Mission Account 请求处理类"""
@@ -18,6 +19,7 @@ class MissionAccountWorker(QObject):
         super().__init__()
         self.is_running = True
         self.config = config
+        self.db = Database()
         
     def get_verification_code(self, account_id: str):
         """获取账号的验证码"""
@@ -73,6 +75,10 @@ class MissionAccountWorker(QObject):
                                 if code_match:
                                     code = code_match.group(1)
                                     send_time = conversation.get('updatetime', 0)
+                                    
+                                    # 保存验证码到数据库
+                                    self.db.save_verification_code(account_id, code, send_time)
+                                    
                                     self.code_updated.emit(account_id, code, send_time)
                                     self.log_message.emit(f"获取到账号 {account_id} 的验证码: {code}")
                                     return
@@ -121,12 +127,18 @@ class MissionAccountWorker(QObject):
             
             # 解析响应
             response_data = response.json()
+            
+            # 保存任务列表到数据库
+            if response_data.get('code') == 1 and 'data' in response_data:
+                for mission in response_data['data'].get('data', []):
+                    self.db.save_mission(mission)
+                    
             return response_data
             
         except Exception as e:
             return {"error": str(e)}
             
-    def get_mission_accounts(self, mission_id: int, page: int = 1) -> Dict[str, Any]:
+    def get_mission_accounts(self, mission_id: str, page: int = 1) -> Dict[str, Any]:
         """获取任务账号列表"""
         url = "http://konk.cc/tgcloud/mission/mission_account"
         
@@ -164,6 +176,27 @@ class MissionAccountWorker(QObject):
             
             # 解析响应
             response_data = response.json()
+            
+            # 保存账号信息到数据库
+            if response_data.get('code') == 1 and 'data' in response_data:
+                for account in response_data['data'].get('data', []):
+                    # 保存账号信息
+                    account_data = {
+                        'account_id': str(account.get('account_id')),
+                        'phone': account.get('phone'),
+                        'username': account.get('username'),
+                        'has_2fa': account.get('has_2fa', False),
+                        'status': account.get('status', 0)
+                    }
+                    self.db.save_account(account_data)
+                    
+                    # 保存任务账号关联
+                    self.db.save_mission_account(
+                        mission_id=str(mission_id),
+                        account_id=str(account.get('account_id')),
+                        status=account.get('status', 0)
+                    )
+                    
             return response_data
             
         except Exception as e:
@@ -183,7 +216,6 @@ class MissionAccountWorker(QObject):
                 return
                 
             # 2. 遍历任务列表
-            all_accounts_data = None
             total_missions = len(mission_list['data']['data'])
             
             for index, mission in enumerate(mission_list['data']['data'], 1):
@@ -201,19 +233,34 @@ class MissionAccountWorker(QObject):
                     continue
 
                 # 计算总页数
-                total_records = first_response['data']['totalPage']  # 这是总记录数
-                limit = first_response['data']['limit']  # 每页条数
+                total_records = first_response['data'].get('totalPage', 0)  # 这是总记录数
+                limit = first_response['data'].get('limit', 10)  # 每页条数
                 total_pages = (total_records + limit - 1) // limit  # 计算实际的总页数
                 
                 self.log_message.emit(f"任务 {mission_id} 共有 {total_records} 条记录，每页 {limit} 条，共 {total_pages} 页")
                 
-                # 如果是第一个任务，初始化 all_accounts_data
-                if all_accounts_data is None:
-                    all_accounts_data = first_response
-                    all_accounts_data['data']['data'] = []
+                # 保存第一页数据
+                if first_response.get('code') == 1 and 'data' in first_response:
+                    for account in first_response['data'].get('data', []):
+                        # 保存账号信息
+                        account_data = {
+                            'account_id': str(account.get('account_id')),
+                            'phone': account.get('phone'),
+                            'username': account.get('username'),
+                            'has_2fa': account.get('has_2fa', False),
+                            'status': account.get('status', 0)
+                        }
+                        self.db.save_account(account_data)
+                        
+                        # 保存任务账号关联
+                        self.db.save_mission_account(
+                            mission_id=str(mission_id),
+                            account_id=str(account.get('account_id')),
+                            status=account.get('status', 0)
+                        )
                 
-                # 获取所有页面
-                for page in range(1, total_pages + 1):
+                # 获取剩余页面
+                for page in range(2, total_pages + 1):
                     if not self.is_running:
                         break
                         
@@ -222,22 +269,43 @@ class MissionAccountWorker(QObject):
                         self.log_message.emit(f"获取第 {page} 页账号列表失败: {accounts['error']}")
                         continue
                         
-                    # 添加当前页的数据
-                    all_accounts_data['data']['data'].extend(accounts['data']['data'])
+                    # 保存当前页数据
+                    if accounts.get('code') == 1 and 'data' in accounts:
+                        for account in accounts['data'].get('data', []):
+                            # 保存账号信息
+                            account_data = {
+                                'account_id': str(account.get('account_id')),
+                                'phone': account.get('phone'),
+                                'username': account.get('username'),
+                                'has_2fa': account.get('has_2fa', False),
+                                'status': account.get('status', 0)
+                            }
+                            self.db.save_account(account_data)
+                            
+                            # 保存任务账号关联
+                            self.db.save_mission_account(
+                                mission_id=str(mission_id),
+                                account_id=str(account.get('account_id')),
+                                status=account.get('status', 0)
+                            )
                     
                     # 更新进度
                     self.progress_updated.emit(page, total_pages)
                 
-            # 发送完整数据
-            if all_accounts_data:
-                self.request_finished.emit(all_accounts_data)
+                # 从数据库获取完整的任务账号列表
+                mission_accounts = self.db.get_mission_accounts(mission_id)
+                # 发送完整的账号列表数据
+                self.request_finished.emit({
+                    'code': 1,
+                    'data': mission_accounts
+                })
                     
         except Exception as e:
             self.log_message.emit(f"处理请求时出错: {e}")
             
     def stop(self):
         """停止处理"""
-        self.is_running = False 
+        self.is_running = False
 
     def setup_ui(self):
         # 设置表格基本属性
