@@ -45,8 +45,6 @@ class MissionAccountTab(QWidget):
         self.page_size = 10
         self.current_page = 1
         self.total_pages = 1
-        self.all_accounts = []  # 存储所有账号数据
-        self.code_workers = []  # 存储验证码获取线程
         self.db = Database()  # 添加数据库实例
         self.log_message_signal.connect(self.append_log)  # 连接信号到日志追加方法
         self.init_ui()
@@ -55,18 +53,16 @@ class MissionAccountTab(QWidget):
     def load_data_from_db(self):
         """从数据库加载数据"""
         try:
-            # 获取所有账号数据
+            # 获取当前页的数据
             result = self.db.get_all_accounts(self.current_page, self.page_size)
             
-            self.all_accounts = result.get('data', [])
-            total_records = result.get('total', 0)
-            
             # 更新总页数
+            total_records = result.get('total', 0)
             self.total_pages = (total_records + self.page_size - 1) // self.page_size
             
             # 更新表格显示
-            self.update_table_display()
-            self.log_message(f"从数据库加载了 {len(self.all_accounts)} 条记录，共 {total_records} 条")
+            self.update_table_display(result.get('data', []))
+            self.log_message(f"从数据库加载了 {len(result.get('data', []))} 条记录，共 {total_records} 条")
                 
         except Exception as e:
             self.log_message(f"从数据库加载数据失败: {str(e)}")
@@ -330,18 +326,18 @@ class MissionAccountTab(QWidget):
             self.current_page += 1
             self.load_data_from_db()
             
-    def update_table_display(self):
+    def update_table_display(self, accounts_data):
         """更新表格显示"""
         try:
             # 清空表格
             self.account_table.setRowCount(0)
             
-            if not self.all_accounts:
+            if not accounts_data:
                 self.log_message("没有数据可显示")
                 return
             
-            # 直接使用数据库返回的当前页数据
-            for idx, account in enumerate(self.all_accounts, start=1):
+            # 显示当前页数据
+            for idx, account in enumerate(accounts_data, start=1):
                 row_position = self.account_table.rowCount()
                 self.account_table.insertRow(row_position)
                 
@@ -437,7 +433,7 @@ class MissionAccountTab(QWidget):
                 
         except Exception as e:
             self.log_message(f"更新表格显示时出错: {str(e)}")
-            raise  # 添加这行以便看到完整的错误信息
+            raise
             
     def set_row_color(self, row: int, status: int):
         """设置行颜色"""
