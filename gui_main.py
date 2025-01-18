@@ -592,9 +592,11 @@ class MainWindow(QMainWindow):
         # 清空表格
         self.result_table.setRowCount(0)
         
-        # 清空线程进度条
-        for widget in self.thread_progress_bars.values():
-            widget.deleteLater()
+        # 清理旧的进度条和布局
+        while self.thread_progress_layout.count():
+            child = self.thread_progress_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
         self.thread_progress_bars.clear()
         
         # 初始化线程池

@@ -367,8 +367,8 @@ class MissionAccountTab(QWidget):
                 account_status = {
                     0: '在线',
                     1: '离线',
-                    2: '已删除'
-                }.get(account.get('account_status', 0), '未知')
+                    2: '未知'
+                }.get(account.get('account_status', 2), '未知')
                 self.account_table.setItem(row_position, 4, QTableWidgetItem(account_status))
                 
                 # 分组
