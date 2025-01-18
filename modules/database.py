@@ -156,7 +156,7 @@ class Database:
             ''', (
                 str(mission_data.get('id')),
                 mission_data.get('type'),
-                mission_data.get('status', 0),
+                mission_data.get('status', 3),
                 str(mission_data.get('id')),
                 now,
                 now

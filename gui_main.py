@@ -236,7 +236,7 @@ class Config:
         account_data = {
             'account_id': str(id),
             'has_2fa': has_2fa,
-            'status': 0
+            'status': 3
         }
         self.db.save_account(account_data)
         
