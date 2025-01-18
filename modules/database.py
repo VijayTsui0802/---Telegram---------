@@ -390,8 +390,8 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            # 获取总记录数
-            cursor.execute('SELECT COUNT(*) FROM accounts')
+            # 获取总记录数（排除未知和已删除状态）
+            cursor.execute('SELECT COUNT(*) FROM accounts WHERE status NOT IN (2, 3)')
             total = cursor.fetchone()[0]
             
             # 获取分页数据
@@ -422,6 +422,7 @@ class Database:
                         WHERE vc2.account_id = vc1.account_id
                     )
                 ) v ON a.account_id = v.account_id
+                WHERE a.status NOT IN (2, 3)  -- 排除未知和已删除状态
                 ORDER BY a.created_at DESC
                 LIMIT ? OFFSET ?
             ''', (limit, (page - 1) * limit))
