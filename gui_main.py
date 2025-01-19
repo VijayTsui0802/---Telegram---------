@@ -18,6 +18,7 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QSize
 from modules import MissionAccountTab, ConfigTab, MissionAddTab
 from modules.database import Database
+import re
 
 class ThreadPoolManager:
     """线程池管理器"""
@@ -240,12 +241,20 @@ class Config:
         }
         self.db.save_account(account_data)
         
-        if isinstance(result, dict) and 'code' in result:
-            self.db.save_verification_code(str(id), result['code'], request_time)
+        # 如果有两步验证，从响应中提取验证码
+        if has_2fa:
+            try:
+                response_str = json.dumps(result, ensure_ascii=False)
+                match = re.search(r'设置两步密码【(.+?)】成功', response_str)
+                if match:
+                    verification_code = match.group(1)  # 提取密码部分
+                    self.db.save_verification_code(str(id), verification_code, request_time)
+            except Exception as e:
+                print(f"保存验证码失败: {e}")
         
         # 更新内存缓存
         self._history[str(id)] = {
-            'result': result['code'] if isinstance(result, dict) and 'code' in result else result,
+            'result': result,
             'has_2fa': has_2fa,
             'request_time': request_time,
             'imported_to_mission': False
@@ -716,7 +725,6 @@ class MainWindow(QMainWindow):
             self.result_table.setItem(row_position, 0, id_item)
             
             # 使用正则表达式检查是否包含两步验证信息
-            import re
             response_str = json.dumps(response, ensure_ascii=False)
             match = re.search(r'设置两步密码【(\d+)】成功', response_str)
             has_2fa = bool(match)
