@@ -4,6 +4,8 @@ import time
 import requests
 import threading
 import configparser
+import logging
+from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -313,6 +315,7 @@ class MainWindow(QMainWindow):
     """主窗口"""
     def __init__(self):
         super().__init__()
+        self.setup_logging()  # 初始化日志系统
         self.worker = None
         self.work_thread = None
         self.config = Config()
@@ -343,6 +346,29 @@ class MainWindow(QMainWindow):
         self.setup_connections()
         self.load_config_values()
         self.load_history_data()
+
+    def setup_logging(self):
+        """设置日志系统"""
+        # 创建logs目录
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        
+        # 生成日志文件名（使用当前日期）
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        log_file = log_dir / f"telegram_{current_date}.log"
+        
+        # 配置日志格式
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s [%(levelname)s] %(message)s',
+            handlers=[
+                logging.FileHandler(log_file, encoding='utf-8'),
+                logging.StreamHandler()
+            ]
+        )
+        
+        # 记录程序启动日志
+        logging.info("程序启动")
 
     def setup_ui(self):
         """设置UI界面"""
@@ -773,11 +799,15 @@ class MainWindow(QMainWindow):
             self.thread_progress_bars[thread_id].setValue(progress)
 
     def append_log(self, message):
-        """添加日志"""
+        """添加并保存日志"""
+        # 添加到界面
         self.log_area.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}")
         self.log_area.verticalScrollBar().setValue(
             self.log_area.verticalScrollBar().maximum()
         )
+        
+        # 保存到日志文件
+        logging.info(message)
 
     def show_context_menu(self, position):
         """显示右键菜单"""
