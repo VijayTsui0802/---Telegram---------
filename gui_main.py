@@ -92,9 +92,40 @@ class RequestWorker(QObject):
                 continue
 
             try:
-                response = self.make_request(id)
-                self.request_finished.emit(response)
-                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 请求完成")
+                # 获取第一页数据
+                first_response = self.make_request(id, 1)
+                if not first_response or 'error' in first_response:
+                    self.request_finished.emit(first_response or {'error': '请求失败'})
+                    continue
+
+                # 获取总页数
+                total_pages = first_response.get('data', {}).get('totalPage', 1)
+                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 总页数: {total_pages}")
+
+                # 发送第一页数据
+                self.request_finished.emit(first_response)
+
+                # 如果有多页，获取其他页的数据
+                if total_pages > 1:
+                    for page in range(2, total_pages + 1):
+                        if not self.is_running:
+                            break
+                        
+                        response = self.make_request(id, page)
+                        if response and 'error' not in response:
+                            # 合并数据
+                            if 'data' in response and 'data' in response['data']:
+                                first_response['data']['data'].extend(response['data']['data'])
+                            self.log_message.emit(f"线程 {self.worker_id}: ID {id} 获取第 {page} 页成功")
+                        
+                        if self.is_running:
+                            time.sleep(self.interval)
+
+                    # 发送合并后的完整数据
+                    self.request_finished.emit(first_response)
+                
+                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 所有页面请求完成")
+                
             except Exception as e:
                 self.log_message.emit(f"线程 {self.worker_id}: ID {id} 请求失败: {str(e)}")
 
@@ -105,7 +136,7 @@ class RequestWorker(QObject):
             if self.is_running:
                 time.sleep(self.interval)
 
-    def make_request(self, id):
+    def make_request(self, id, page=1):
         """发送单个请求并返回响应"""
         url = f"http://konk.cc/tgcloud/account/account_mission"
         
@@ -122,7 +153,7 @@ class RequestWorker(QObject):
         
         params = {
             "id": id,
-            "page": 1,
+            "page": page,
             "limit": 100
         }
         
