@@ -752,7 +752,7 @@ class MainWindow(QMainWindow):
             
             # 使用正则表达式检查是否包含两步验证信息
             response_str = json.dumps(response, ensure_ascii=False)
-            match = re.search(r'设置两步密码【(\d+)】成功', response_str)
+            match = re.search(r'设置两步密码【(.+?)】成功', response_str)
             has_2fa = bool(match)
             
             # 设置两步验证状态
@@ -778,8 +778,8 @@ class MainWindow(QMainWindow):
             imported_item = QTableWidgetItem("否")
             self.result_table.setItem(row_position, 4, imported_item)
             
-            # 保存到历史记录
-            self.config.add_history(id, display_result, has_2fa, current_time)
+            # 保存到历史记录 - 修改这里，保存完整的响应数据
+            self.config.add_history(id, response, has_2fa, current_time)
             
             # 添加到日志
             self.append_log(f"ID {id} 请求完成: {response_str}")
