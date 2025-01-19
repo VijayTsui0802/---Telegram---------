@@ -69,19 +69,19 @@ class MissionAddWorker(QObject):
             self.log_message.emit(f"保存导入账号记录时出错: {e}")
             
     def make_request(self, account_items: str) -> Dict:
-        """发送任务添加请求"""
-        url = 'http://konk.cc/tgcloud/mission/mission_add'
+        """发送请求"""
+        url = "http://konk.cc/tgcloud/mission/mission_add"
         
         headers = {
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
-            'Connection': 'keep-alive',
-            'Content-Type': 'application/json',
-            'Cookie': f"PHPSESSID={self.config.get('Auth', 'cookie')}",
-            'Origin': 'http://konk.cc',
-            'Referer': 'http://konk.cc/tgcloud_pc/',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
-            'token': self.config.get('Auth', 'token')
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+            "Connection": "keep-alive",
+            "Content-Type": "application/json",
+            "Cookie": f"PHPSESSID={self.config.get('Auth', 'cookie')}",
+            "Origin": "http://konk.cc",
+            "Referer": "http://konk.cc/tgcloud_pc/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "token": self.config.get('Auth', 'token')
         }
         
         data = {
@@ -101,15 +101,15 @@ class MissionAddWorker(QObject):
             "bio_source_group_type": "text",
             "avatar_source_group": "",
             "avatar_source_group_type": "text",
-            "name": "555",
+            "name": "ssss",
             "call_timeout": 0,
             "ad_type": "text",
             "reply_type": "text",
-            "group_id": 44619,
-            "account_type": "all",
+            "group_id": 44629,
+            "account_type": "choose",
             "account_items": account_items,
             "data_type": "phone",
-            "target_data_file": "54645645645",
+            "target_data_file": "3453453453",
             "add_contacts_num_evtimes": 3,
             "phone_addcontacts_timeout_send": 60,
             "timout_after_send": 0,
@@ -118,7 +118,7 @@ class MissionAddWorker(QObject):
             "send_msg_timeout": 0,
             "send_msg_max_num": 3,
             "ad_msg_content_type": "text",
-            "ad_msg_content": "54645646456",
+            "ad_msg_content": "333",
             "ad_msg_img": "",
             "is_forward_msg": 0,
             "is_need_replace_msg": 0,
@@ -140,20 +140,22 @@ class MissionAddWorker(QObject):
         }
         
         try:
-            # 禁用 SSL 警告
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            # 禁用SSL验证警告
+            urllib3.disable_warnings()
             
+            # 发送POST请求
             response = requests.post(
-                url,
-                headers=headers,
+                url, 
+                headers=headers, 
                 json=data,
-                verify=False  # 对应 curl 的 --insecure 参数
+                verify=False
             )
             
+            # 解析响应
             return response.json()
+            
         except Exception as e:
-            self.log_message.emit(f"请求发送失败: {str(e)}")
-            return {"code": -1, "msg": str(e)}
+            return {"error": str(e)}
             
     def process_request(self, use_history: bool = True) -> Optional[Dict]:
         """处理请求"""
