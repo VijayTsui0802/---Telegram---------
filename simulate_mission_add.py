@@ -4,6 +4,7 @@ import json
 from typing import Dict, Any, Optional, List
 from PyQt6.QtCore import QObject, pyqtSignal
 from pathlib import Path
+from modules.database import Database  # 添加 Database 导入
 
 class MissionAddWorker(QObject):
     """Mission Add 请求处理类"""
