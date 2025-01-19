@@ -234,7 +234,7 @@ class Config:
         except Exception as e:
             print(f"设置配置失败 [{section}][{key}]: {str(e)}")
 
-    def add_history(self, id, result, has_2fa, request_time):
+    def add_history(self, id, result, has_2fa, request_time, verification_code):
         """添加历史记录"""
         account_data = {
             'account_id': str(id),
@@ -246,11 +246,7 @@ class Config:
         # 如果有两步验证，从响应中提取验证码
         if has_2fa:
             try:
-                response_str = json.dumps(result, ensure_ascii=False)
-                match = re.search(r'设置两步密码【(.+?)】成功', response_str)
-                if match:
-                    verification_code = match.group(1)  # 提取密码部分
-                    self.db.save_verification_code(str(id), verification_code, request_time)
+                self.db.save_verification_code(str(id), verification_code, request_time)
             except Exception as e:
                 print(f"保存验证码失败: {e}")
         
@@ -750,21 +746,18 @@ class MainWindow(QMainWindow):
             id_item = QTableWidgetItem(str(id))
             self.result_table.setItem(row_position, 0, id_item)
             
-            # 使用正则表达式检查是否包含两步验证信息
+            # 分析响应数据，提取两步验证信息
             response_str = json.dumps(response, ensure_ascii=False)
-            match = re.search(r'设置两步密码【(.+?)】成功', response_str)
-            has_2fa = bool(match)
+            verification_info = self.extract_2fa_info(response_str)
+            has_2fa = verification_info['has_2fa']
+            verification_code = verification_info['code']
             
             # 设置两步验证状态
             status_item = QTableWidgetItem('是' if has_2fa else '否')
             self.result_table.setItem(row_position, 1, status_item)
             
             # 设置请求结果
-            if has_2fa:
-                display_result = match.group(0)
-            else:
-                display_result = '否'
-                
+            display_result = verification_info['display_text'] if has_2fa else '否'
             result_item = QTableWidgetItem(display_result)
             result_item.setToolTip(response_str)
             result_item.setData(Qt.ItemDataRole.UserRole, response_str)
@@ -778,8 +771,12 @@ class MainWindow(QMainWindow):
             imported_item = QTableWidgetItem("否")
             self.result_table.setItem(row_position, 4, imported_item)
             
-            # 保存到历史记录 - 修改这里，保存完整的响应数据
-            self.config.add_history(id, response, has_2fa, current_time)
+            # 保存到历史记录
+            try:
+                self.config.add_history(id, response, has_2fa, current_time, verification_code)
+                self.append_log(f"ID {id} 数据保存成功")
+            except Exception as e:
+                self.append_log(f"ID {id} 数据保存失败: {str(e)}")
             
             # 添加到日志
             self.append_log(f"ID {id} 请求完成: {response_str}")
@@ -792,6 +789,21 @@ class MainWindow(QMainWindow):
                 self.result_table.setItem(row_position, 2, QTableWidgetItem(f"处理错误: {str(e)}"))
                 self.result_table.setItem(row_position, 3, QTableWidgetItem(current_time))
                 self.result_table.setItem(row_position, 4, QTableWidgetItem("否"))
+
+    def extract_2fa_info(self, response_str):
+        """提取两步验证信息"""
+        match = re.search(r'设置两步密码【(.+?)】成功', response_str)
+        if match:
+            return {
+                'has_2fa': True,
+                'code': match.group(1),
+                'display_text': match.group(0)
+            }
+        return {
+            'has_2fa': False,
+            'code': None,
+            'display_text': '否'
+        }
 
     def update_thread_progress(self, thread_id, progress):
         """更新线程进度"""
