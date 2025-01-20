@@ -124,6 +124,15 @@ class Database:
             cursor = conn.cursor()
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
+            # 先检查是否存在该账号
+            cursor.execute('SELECT two_step_password FROM accounts WHERE account_id = ?', (str(account_data.get('account_id')),))
+            existing_record = cursor.fetchone()
+            
+            # 如果存在记录且新数据没有提供two_step_password,使用原有的two_step_password
+            two_step_password = account_data.get('two_step_password', '')
+            if existing_record and not two_step_password:
+                two_step_password = existing_record[0] or ''
+            
             cursor.execute('''
                 INSERT OR REPLACE INTO accounts 
                 (account_id, phone, username, has_2fa, status, success_count, fail_count, group_name, two_step_password, created_at, updated_at)
@@ -137,7 +146,7 @@ class Database:
                 account_data.get('success_count', 0),
                 account_data.get('fail_count', 0),
                 account_data.get('group', ''),
-                account_data.get('two_step_password', ''),
+                two_step_password,  # 使用保留的two_step_password值
                 str(account_data.get('account_id')),
                 now,
                 now
