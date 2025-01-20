@@ -74,8 +74,9 @@ class RequestWorker(QObject):
 
     def run(self):
         """运行线程"""
-        total = self.start_id - self.end_id + 1
-        current = 0
+        # 计算总任务数（包括跳过的ID）
+        total_ids = self.start_id - self.end_id + 1
+        processed_ids = 0
 
         self.log_message.emit(f"线程 {self.worker_id} 开始处理: {self.start_id} - {self.end_id}")
 
@@ -84,17 +85,22 @@ class RequestWorker(QObject):
             if not self.is_running:
                 break
 
+            # 更新进度（无论是否跳过都计入进度）
+            processed_ids += 1
+            progress = int((processed_ids / total_ids) * 100)
+            self.progress_updated.emit(self.worker_id, progress)
+
             # 检查是否已经请求过
             if str(id) in self.history:
                 self.log_message.emit(f"线程 {self.worker_id}: ID {id} 已经请求过，跳过")
-                current += 1
-                progress = int((current / total) * 100)
-                self.progress_updated.emit(self.worker_id, progress)
                 continue
 
             try:
                 # 获取第一页数据
                 first_response = self.make_request(id, 1)
+                # 打印完整的响应内容
+                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 响应内容: {json.dumps(first_response, ensure_ascii=False)}")
+                
                 if not first_response or 'error' in first_response:
                     self.request_finished.emit(first_response or {'error': '请求失败'})
                     continue
@@ -113,6 +119,9 @@ class RequestWorker(QObject):
                             break
                         
                         response = self.make_request(id, page)
+                        # 打印其他页的响应内容
+                        self.log_message.emit(f"线程 {self.worker_id}: ID {id} 第{page}页响应内容: {json.dumps(response, ensure_ascii=False)}")
+                        
                         if response and 'error' not in response:
                             # 合并数据
                             if 'data' in response and 'data' in response['data']:
@@ -129,10 +138,6 @@ class RequestWorker(QObject):
                 
             except Exception as e:
                 self.log_message.emit(f"线程 {self.worker_id}: ID {id} 请求失败: {str(e)}")
-
-            current += 1
-            progress = int((current / total) * 100)
-            self.progress_updated.emit(self.worker_id, progress)
             
             if self.is_running:
                 time.sleep(self.interval)
@@ -146,8 +151,8 @@ class RequestWorker(QObject):
             "Accept-Language": "zh-CN,zh;q=0.9,th;q=0.8,zh-TW;q=0.7",
             "Connection": "keep-alive",
             "Cookie": f"PHPSESSID={self.cookie}",
-            "Referer": "http://konk.cc/tgcloud_pc/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Referer": "http://konk.cc/tgcloud_pc/?",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
             "X-KL-Ajax-Request": "Ajax_Request",
             "token": self.token
         }
@@ -155,7 +160,7 @@ class RequestWorker(QObject):
         params = {
             "id": id,
             "page": page,
-            "limit": 100
+            "limit": 10
         }
         
         response = requests.get(url, headers=headers, params=params, verify=False)
@@ -229,8 +234,8 @@ class Config:
         """创建默认配置"""
         default_configs = {
             'General': {
-                'start_id': '11312122',
-                'end_id': '11312122',
+                'start_id': '12665581',
+                'end_id': '12665581',
                 'request_interval': '1'
             },
             'Auth': {
@@ -662,8 +667,26 @@ class MainWindow(QMainWindow):
         
         # 计算ID范围和线程分配
         target_id = self.target_id_spinbox.value()
-        thread_count = min(self.thread_spinbox.value(), (target_id // 100) + 1)
         interval = self.interval_spinbox.value()
+        
+        # 计算需要多少个完整的100ID块
+        full_blocks = target_id // 100
+        remainder = target_id % 100
+        total_threads = full_blocks + (1 if remainder > 0 else 0)
+        
+        # 限制线程数不超过用户设置
+        thread_count = min(self.thread_spinbox.value(), total_threads)
+        
+        # 预先创建所有进度条
+        for i in range(thread_count):
+            progress_layout = QHBoxLayout()
+            progress_layout.addWidget(QLabel(f"线程 {i+1}:"))
+            progress_bar = QProgressBar()
+            progress_bar.setTextVisible(True)
+            progress_bar.setValue(0)  # 初始化进度为0
+            self.thread_progress_bars[i+1] = progress_bar
+            progress_layout.addWidget(progress_bar)
+            self.thread_progress_layout.addLayout(progress_layout)
         
         current_start = target_id
         
@@ -676,16 +699,7 @@ class MainWindow(QMainWindow):
             # 如果没有更多ID需要处理，跳出循环
             if thread_start <= 0:
                 break
-            
-            # 创建进度条
-            progress_layout = QHBoxLayout()
-            progress_layout.addWidget(QLabel(f"线程 {i+1}:"))
-            progress_bar = QProgressBar()
-            progress_bar.setTextVisible(True)
-            self.thread_progress_bars[i+1] = progress_bar
-            progress_layout.addWidget(progress_bar)
-            self.thread_progress_layout.addLayout(progress_layout)
-            
+                
             # 创建工作线程
             worker = RequestWorker(
                 worker_id=i+1,
@@ -752,18 +766,28 @@ class MainWindow(QMainWindow):
             if 'error' in response:
                 return
                 
+            current_time = time.strftime('%Y-%m-%d %H:%M:%S')
+            id = response.get('params', {}).get('id', 'N/A')
+            
+            # 解析响应数据
             response_str = json.dumps(response, ensure_ascii=False)
             verification_info = self.extract_2fa_info(response_str)
+            has_2fa = verification_info['has_2fa']
+            
+            # 保存到历史记录（无论是否有两步验证）
+            try:
+                self.config.add_history(id, response, has_2fa, current_time, verification_info['code'])
+                self.append_log(f"ID {id} 数据保存成功")
+            except Exception as e:
+                self.append_log(f"ID {id} 数据保存失败: {str(e)}")
             
             # 只显示有两步验证的结果
-            if not verification_info['has_2fa']:
+            if not has_2fa:
                 return
                 
-            current_time = time.strftime('%Y-%m-%d %H:%M:%S')
+            # 添加到结果表格
             row_position = self.result_table.rowCount()
             self.result_table.insertRow(row_position)
-            
-            id = response.get('params', {}).get('id', 'N/A')
             
             # 设置ID
             id_item = QTableWidgetItem(str(id))
@@ -787,18 +811,12 @@ class MainWindow(QMainWindow):
             imported_item = QTableWidgetItem("否")
             self.result_table.setItem(row_position, 4, imported_item)
             
-            # 保存到历史记录
-            try:
-                self.config.add_history(id, response, True, current_time, verification_info['code'])
-                self.append_log(f"ID {id} 数据保存成功")
-            except Exception as e:
-                self.append_log(f"ID {id} 数据保存失败: {str(e)}")
-            
             # 添加到日志
             self.append_log(f"ID {id} 请求完成: {verification_info['display_text']}")
             
         except Exception as e:
             self.append_log(f"处理响应时出错: {str(e)}")
+            logging.error(f"处理响应时出错: {str(e)}", exc_info=True)
 
     def extract_2fa_info(self, response_str):
         """提取两步验证信息"""
