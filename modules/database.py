@@ -219,9 +219,20 @@ class Database:
         """获取账号信息"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM accounts WHERE account_id = ?', (str(account_id),))
-            row = cursor.fetchone()
+            # 获取账号基本信息和最新验证码
+            cursor.execute('''
+                SELECT a.*, v.code as verification_code, v.send_time, v.created_at as code_created_at
+                FROM accounts a
+                LEFT JOIN verification_codes v ON a.account_id = v.account_id
+                AND v.created_at = (
+                    SELECT MAX(created_at)
+                    FROM verification_codes
+                    WHERE account_id = a.account_id
+                )
+                WHERE a.account_id = ?
+            ''', (str(account_id),))
             
+            row = cursor.fetchone()
             if row:
                 return {
                     'id': row[0],
@@ -235,7 +246,12 @@ class Database:
                     'group': row[8],
                     'two_step_password': row[9],
                     'created_at': row[10],
-                    'updated_at': row[11]
+                    'updated_at': row[11],
+                    'verification_code': {
+                        'code': row[12],
+                        'send_time': row[13],
+                        'created_at': row[14]
+                    } if row[12] else None
                 }
             return None
 
