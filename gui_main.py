@@ -270,12 +270,13 @@ class Config:
         account_data = {
             'account_id': str(id),
             'has_2fa': has_2fa,
-            'status': 3
+            'status': 3,
+            'two_step_password': verification_code if has_2fa else ''  # 如果是两步密码设置成功，则保存两步密码
         }
         self.db.save_account(account_data)
         
-        # 如果有两步验证，从响应中提取验证码
-        if has_2fa:
+        # 如果是验证码而不是两步密码设置的响应
+        if '设置两步密码' not in result:
             try:
                 self.db.save_verification_code(str(id), verification_code, request_time)
             except Exception as e:

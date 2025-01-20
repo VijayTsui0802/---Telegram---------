@@ -47,6 +47,7 @@ class MissionAccountTab(QWidget):
         self.total_pages = 1
         self.db = Database()  # 添加数据库实例
         self.log_message_signal.connect(self.append_log)  # 连接信号到日志追加方法
+        self.code_workers = []  # 初始化code_workers列表
         self.init_ui()
         self.load_data_from_db()  # 初始化时加载数据库数据
         
@@ -136,8 +137,8 @@ class MissionAccountTab(QWidget):
             "失败次数",      # 7
             "创建时间",      # 8
             "更新时间",      # 9
-            "两步密码",      # 10
-            "验证码",        # 11
+            "验证码",      # 10
+            "两步密码",        # 11
             "发送时间"       # 12
         ])
         
@@ -300,7 +301,7 @@ class MissionAccountTab(QWidget):
         """更新指定账号的验证码和发送时间"""
         for row in range(self.account_table.rowCount()):
             if self.account_table.item(row, 1).text() == account_id:  # 账号ID在第1列
-                # 更新验证码 - 第11列
+                # 更新验证码 - 第11列（验证码列）
                 self.account_table.setItem(row, 11, QTableWidgetItem(code))
                 # 更新发送时间 - 第12列
                 time_str = datetime.fromtimestamp(send_time).strftime('%Y-%m-%d %H:%M:%S')
