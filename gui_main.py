@@ -74,12 +74,13 @@ class RequestWorker(QObject):
 
     def run(self):
         """运行线程"""
-        total = self.end_id - self.start_id + 1
+        total = self.start_id - self.end_id + 1
         current = 0
 
         self.log_message.emit(f"线程 {self.worker_id} 开始处理: {self.start_id} - {self.end_id}")
 
-        for id in range(self.start_id, self.end_id + 1):
+        # 倒序处理ID
+        for id in range(self.start_id, self.end_id - 1, -1):
             if not self.is_running:
                 break
 
@@ -442,27 +443,16 @@ class MainWindow(QMainWindow):
         task_group = QGroupBox("任务配置")
         task_layout = QHBoxLayout()
         
-        # 起始ID
-        start_id_layout = QHBoxLayout()
-        start_id_layout.addWidget(QLabel("起始ID:"))
-        self.start_id_spinbox = QSpinBox()
-        self.start_id_spinbox.setRange(0, 999999999)
-        self.start_id_spinbox.setValue(11312122)
-        self.start_id_spinbox.setMinimumWidth(150)
-        self.start_id_spinbox.setFixedWidth(150)
-        start_id_layout.addWidget(self.start_id_spinbox)
-        task_layout.addLayout(start_id_layout)
-        
-        # 结束ID
-        end_id_layout = QHBoxLayout()
-        end_id_layout.addWidget(QLabel("结束ID:"))
-        self.end_id_spinbox = QSpinBox()
-        self.end_id_spinbox.setRange(0, 999999999)
-        self.end_id_spinbox.setValue(11312122)
-        self.end_id_spinbox.setMinimumWidth(150)
-        self.end_id_spinbox.setFixedWidth(150)
-        end_id_layout.addWidget(self.end_id_spinbox)
-        task_layout.addLayout(end_id_layout)
+        # 目标ID
+        target_id_layout = QHBoxLayout()
+        target_id_layout.addWidget(QLabel("目标ID:"))
+        self.target_id_spinbox = QSpinBox()
+        self.target_id_spinbox.setRange(0, 999999999)
+        self.target_id_spinbox.setValue(11312122)
+        self.target_id_spinbox.setMinimumWidth(150)
+        self.target_id_spinbox.setFixedWidth(150)
+        target_id_layout.addWidget(self.target_id_spinbox)
+        task_layout.addLayout(target_id_layout)
         
         # 请求间隔
         interval_layout = QHBoxLayout()
@@ -477,7 +467,7 @@ class MainWindow(QMainWindow):
         thread_layout = QHBoxLayout()
         thread_layout.addWidget(QLabel("线程数:"))
         self.thread_spinbox = QSpinBox()
-        self.thread_spinbox.setRange(1, 10)
+        self.thread_spinbox.setRange(1, 100)  # 修改最大线程数为100
         self.thread_spinbox.setValue(3)
         thread_layout.addWidget(self.thread_spinbox)
         task_layout.addLayout(thread_layout)
@@ -603,8 +593,7 @@ class MainWindow(QMainWindow):
         self.config_tab.config_changed.connect(self.handle_config_changed)
         
         # 保存配置触发器
-        self.start_id_spinbox.valueChanged.connect(lambda: self.save_config_values())
-        self.end_id_spinbox.valueChanged.connect(lambda: self.save_config_values())
+        self.target_id_spinbox.valueChanged.connect(lambda: self.save_config_values())
         self.interval_spinbox.valueChanged.connect(lambda: self.save_config_values())
 
     def handle_config_changed(self, config: dict):
@@ -620,8 +609,7 @@ class MainWindow(QMainWindow):
         try:
             self.is_loading = True
             # 加载基本设置
-            self.start_id_spinbox.setValue(int(self.config.get('General', 'start_id', '11312122')))
-            self.end_id_spinbox.setValue(int(self.config.get('General', 'end_id', '11312122')))
+            self.target_id_spinbox.setValue(int(self.config.get('General', 'start_id', '11312122')))
             self.interval_spinbox.setValue(int(self.config.get('General', 'request_interval', '1')))
         except Exception as e:
             print(f"加载配置时发生错误: {str(e)}")
@@ -636,8 +624,7 @@ class MainWindow(QMainWindow):
             
         try:
             # 保存基本设置
-            self.config.set('General', 'start_id', str(self.start_id_spinbox.value()))
-            self.config.set('General', 'end_id', str(self.end_id_spinbox.value()))
+            self.config.set('General', 'start_id', str(self.target_id_spinbox.value()))
             self.config.set('General', 'request_interval', str(self.interval_spinbox.value()))
         except Exception as e:
             print(f"保存配置时发生错误: {str(e)}")
@@ -673,23 +660,22 @@ class MainWindow(QMainWindow):
         # 初始化线程池
         self.thread_pool = ThreadPoolManager()
         
-        # 计算每个线程的ID范围
-        start_id = self.start_id_spinbox.value()
-        end_id = self.end_id_spinbox.value()
-        thread_count = self.thread_spinbox.value()
+        # 计算ID范围和线程分配
+        target_id = self.target_id_spinbox.value()
+        thread_count = min(self.thread_spinbox.value(), (target_id // 100) + 1)
         interval = self.interval_spinbox.value()
         
-        id_range = end_id - start_id + 1
-        ids_per_thread = id_range // thread_count
-        remainder = id_range % thread_count
-        
-        current_start = start_id
+        current_start = target_id
         
         # 创建并启动工作线程
         for i in range(thread_count):
-            # 计算当前线程的ID范围
-            thread_ids = ids_per_thread + (1 if i < remainder else 0)
-            thread_end = current_start + thread_ids - 1
+            # 每个线程处理100个ID
+            thread_start = current_start
+            thread_end = max(current_start - 99, 0)  # 确保不会小于0
+            
+            # 如果没有更多ID需要处理，跳出循环
+            if thread_start <= 0:
+                break
             
             # 创建进度条
             progress_layout = QHBoxLayout()
@@ -703,7 +689,7 @@ class MainWindow(QMainWindow):
             # 创建工作线程
             worker = RequestWorker(
                 worker_id=i+1,
-                start_id=current_start,
+                start_id=thread_start,
                 end_id=thread_end,
                 interval=interval,
                 cookie=auth_config['cookie'],
@@ -727,7 +713,7 @@ class MainWindow(QMainWindow):
             # 启动线程
             thread.start()
             
-            current_start = thread_end + 1
+            current_start = thread_end - 1
             
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -735,9 +721,9 @@ class MainWindow(QMainWindow):
     def validate_inputs(self):
         """验证输入"""
         self.append_log("正在验证输入...")
-        if self.start_id_spinbox.value() > self.end_id_spinbox.value():
-            self.append_log(f"验证失败: 起始ID({self.start_id_spinbox.value()})大于结束ID({self.end_id_spinbox.value()})")
-            QMessageBox.warning(self, "错误", "起始ID不能大于结束ID")
+        if self.target_id_spinbox.value() < 0:
+            self.append_log(f"验证失败: 目标ID({self.target_id_spinbox.value()})小于0")
+            QMessageBox.warning(self, "错误", "目标ID不能小于0")
             return False
         
         self.append_log("输入验证通过")
@@ -759,46 +745,36 @@ class MainWindow(QMainWindow):
     def handle_request_finished(self, response):
         """处理请求完成的响应"""
         try:
+            # 分析响应数据，提取两步验证信息
+            if not isinstance(response, dict):
+                return
+                
+            if 'error' in response:
+                return
+                
+            response_str = json.dumps(response, ensure_ascii=False)
+            verification_info = self.extract_2fa_info(response_str)
+            
+            # 只显示有两步验证的结果
+            if not verification_info['has_2fa']:
+                return
+                
             current_time = time.strftime('%Y-%m-%d %H:%M:%S')
             row_position = self.result_table.rowCount()
             self.result_table.insertRow(row_position)
             
-            if not isinstance(response, dict):
-                self.result_table.setItem(row_position, 0, QTableWidgetItem("N/A"))
-                self.result_table.setItem(row_position, 1, QTableWidgetItem("N/A"))
-                self.result_table.setItem(row_position, 2, QTableWidgetItem("请求失败"))
-                self.result_table.setItem(row_position, 3, QTableWidgetItem(current_time))
-                self.result_table.setItem(row_position, 4, QTableWidgetItem("否"))
-                self.append_log("请求失败: 无效的响应格式")
-                return
-            
             id = response.get('params', {}).get('id', 'N/A')
-            if 'error' in response:
-                self.result_table.setItem(row_position, 0, QTableWidgetItem(str(id)))
-                self.result_table.setItem(row_position, 1, QTableWidgetItem("N/A"))
-                self.result_table.setItem(row_position, 2, QTableWidgetItem(f"错误: {response['error']}"))
-                self.result_table.setItem(row_position, 3, QTableWidgetItem(current_time))
-                self.result_table.setItem(row_position, 4, QTableWidgetItem("否"))
-                self.append_log(f"ID {id} 请求失败: {response['error']}")
-                return
             
             # 设置ID
             id_item = QTableWidgetItem(str(id))
             self.result_table.setItem(row_position, 0, id_item)
             
-            # 分析响应数据，提取两步验证信息
-            response_str = json.dumps(response, ensure_ascii=False)
-            verification_info = self.extract_2fa_info(response_str)
-            has_2fa = verification_info['has_2fa']
-            verification_code = verification_info['code']
-            
             # 设置两步验证状态
-            status_item = QTableWidgetItem('是' if has_2fa else '否')
+            status_item = QTableWidgetItem('是')
             self.result_table.setItem(row_position, 1, status_item)
             
             # 设置请求结果
-            display_result = verification_info['display_text'] if has_2fa else '否'
-            result_item = QTableWidgetItem(display_result)
+            result_item = QTableWidgetItem(verification_info['display_text'])
             result_item.setToolTip(response_str)
             result_item.setData(Qt.ItemDataRole.UserRole, response_str)
             self.result_table.setItem(row_position, 2, result_item)
@@ -813,22 +789,16 @@ class MainWindow(QMainWindow):
             
             # 保存到历史记录
             try:
-                self.config.add_history(id, response, has_2fa, current_time, verification_code)
+                self.config.add_history(id, response, True, current_time, verification_info['code'])
                 self.append_log(f"ID {id} 数据保存成功")
             except Exception as e:
                 self.append_log(f"ID {id} 数据保存失败: {str(e)}")
             
             # 添加到日志
-            self.append_log(f"ID {id} 请求完成: {response_str}")
+            self.append_log(f"ID {id} 请求完成: {verification_info['display_text']}")
             
         except Exception as e:
             self.append_log(f"处理响应时出错: {str(e)}")
-            if row_position >= 0:
-                self.result_table.setItem(row_position, 0, QTableWidgetItem("ERROR"))
-                self.result_table.setItem(row_position, 1, QTableWidgetItem("N/A"))
-                self.result_table.setItem(row_position, 2, QTableWidgetItem(f"处理错误: {str(e)}"))
-                self.result_table.setItem(row_position, 3, QTableWidgetItem(current_time))
-                self.result_table.setItem(row_position, 4, QTableWidgetItem("否"))
 
     def extract_2fa_info(self, response_str):
         """提取两步验证信息"""
