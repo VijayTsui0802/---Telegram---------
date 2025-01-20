@@ -183,7 +183,7 @@ class Database:
             ))
 
     def save_verification_code(self, account_id: str, code: str, send_time: int):
-        """保存验证码信息"""
+        """保存验证码信息到verification_codes表"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -192,12 +192,10 @@ class Database:
                 INSERT INTO verification_codes 
                 (account_id, code, send_time, created_at)
                 VALUES (?, ?, ?, ?)
-            ''', (
-                str(account_id),
-                code,
-                send_time,
-                now
-            ))
+            ''', (str(account_id), code, send_time, now))
+            
+            # 不更新accounts表的two_step_password字段
+            conn.commit()
 
     def save_config(self, key: str, value: Any):
         """保存配置信息"""

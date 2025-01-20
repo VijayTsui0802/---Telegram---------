@@ -267,16 +267,24 @@ class Config:
 
     def add_history(self, id, result, has_2fa, request_time, verification_code):
         """添加历史记录"""
-        account_data = {
-            'account_id': str(id),
-            'has_2fa': has_2fa,
-            'status': 3,
-            'two_step_password': verification_code if has_2fa else ''  # 如果是两步密码设置成功，则保存两步密码
-        }
-        self.db.save_account(account_data)
-        
-        # 如果是验证码而不是两步密码设置的响应
-        if '设置两步密码' not in result:
+        # 如果是两步密码设置成功的响应
+        if '设置两步密码' in str(result):
+            account_data = {
+                'account_id': str(id),
+                'has_2fa': has_2fa,
+                'status': 3,
+                'two_step_password': verification_code  # 保存两步密码
+            }
+            self.db.save_account(account_data)
+        else:
+            # 如果是普通验证码
+            account_data = {
+                'account_id': str(id),
+                'has_2fa': has_2fa,
+                'status': 3
+            }
+            self.db.save_account(account_data)
+            # 保存验证码到verification_codes表
             try:
                 self.db.save_verification_code(str(id), verification_code, request_time)
             except Exception as e:
