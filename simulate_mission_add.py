@@ -105,7 +105,7 @@ class MissionAddWorker(QObject):
             "call_timeout": 0,
             "ad_type": "text",
             "reply_type": "text",
-            "group_id": 44629,
+            "group_id": 44619,
             "account_type": "choose",
             "account_items": account_items,
             "data_type": "phone",
