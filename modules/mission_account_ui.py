@@ -569,6 +569,13 @@ class MissionAccountTab(QWidget):
             self.worker.stop()
             self.log_message("正在停止...")
             
+            # 立即更新按钮状态
+            self.cleanup()
+            
+            # 停止所有验证码获取线程
+            if self.is_getting_codes:
+                self.toggle_code_getting()  # 停止验证码获取
+            
     def copy_cell_content(self, row, column):
         """双击单元格复制内容到剪贴板"""
         if column in [2, 10, 11]:  # 账号名称、两步密码和验证码列
