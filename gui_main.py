@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QLabel, QProgressBar, QMessageBox, QTableWidget, QTableWidgetItem,
     QSplitter, QHeaderView, QMenu, QTabWidget, QComboBox
 )
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtSvg import QSvgRenderer
@@ -21,6 +21,7 @@ from PyQt6.QtCore import QSize
 from modules import MissionAccountTab, ConfigTab, MissionAddTab
 from modules.database import Database
 import re
+from functools import partial
 
 class ThreadPoolManager:
     """线程池管理器"""
@@ -30,38 +31,67 @@ class ThreadPoolManager:
         self.is_running = True
         self.results_lock = threading.Lock()
         self.results = {}  # 存储结果
+        self.active_workers = 0  # 活动的工作线程数
         
     def add_worker(self, worker, thread):
         """添加工作线程"""
-        self.workers.append(worker)
-        self.threads.append(thread)
+        with self.results_lock:
+            self.workers.append(worker)
+            self.threads.append(thread)
+            self.active_workers += 1
+        
+    def worker_finished(self):
+        """工作线程完成"""
+        with self.results_lock:
+            self.active_workers -= 1
+            
+    def has_active_workers(self):
+        """检查是否还有活动的工作线程"""
+        with self.results_lock:
+            return self.active_workers > 0
         
     def stop_all(self):
         """停止所有线程"""
-        self.is_running = False
-        for worker in self.workers:
-            worker.stop()
+        with self.results_lock:
+            self.is_running = False
+            for worker in self.workers:
+                worker.stop()
         
     def wait_all(self):
         """等待所有线程完成"""
-        for thread in self.threads:
-            if thread.isRunning():
+        threads_to_wait = []
+        with self.results_lock:
+            for thread in self.threads:
+                try:
+                    if thread and thread.isRunning():
+                        threads_to_wait.append(thread)
+                except RuntimeError:
+                    continue
+                    
+        for thread in threads_to_wait:
+            try:
                 thread.quit()
                 thread.wait()
+            except RuntimeError:
+                continue
                 
     def clear(self):
         """清理资源"""
-        self.workers.clear()
-        self.threads.clear()
-        self.results.clear()
+        with self.results_lock:
+            self.workers.clear()
+            self.threads.clear()
+            self.results.clear()
+            self.active_workers = 0
 
 class RequestWorker(QObject):
     """请求处理线程"""
     request_finished = pyqtSignal(dict)  # 请求完成信号
     progress_updated = pyqtSignal(int, int)   # 进度更新信号(线程ID, 进度)
     log_message = pyqtSignal(str)        # 日志信息信号
+    work_completed = pyqtSignal(int, int)  # 工作完成信号(worker_id, last_id)
+    all_work_done = pyqtSignal()  # 所有工作完成信号
 
-    def __init__(self, worker_id, start_id, end_id, interval, cookie, token, history):
+    def __init__(self, worker_id, start_id, end_id, interval, cookie, token, history, thread_pool):
         super().__init__()
         self.worker_id = worker_id
         self.start_id = start_id
@@ -71,76 +101,84 @@ class RequestWorker(QObject):
         self.token = token
         self.history = history
         self.is_running = True
+        self.thread_pool = thread_pool
 
     def run(self):
         """运行线程"""
-        # 计算总任务数（包括跳过的ID）
-        total_ids = self.start_id - self.end_id + 1
-        processed_ids = 0
+        try:
+            # 计算总任务数（包括跳过的ID）
+            total_ids = self.start_id - self.end_id + 1
+            processed_ids = 0
 
-        self.log_message.emit(f"线程 {self.worker_id} 开始处理: {self.start_id} - {self.end_id}")
+            self.log_message.emit(f"线程 {self.worker_id} 开始处理: {self.start_id} - {self.end_id}")
 
-        # 倒序处理ID
-        for id in range(self.start_id, self.end_id - 1, -1):
-            if not self.is_running:
-                break
+            # 倒序处理ID
+            for id in range(self.start_id, self.end_id - 1, -1):
+                if not self.is_running:
+                    break
 
-            # 更新进度（无论是否跳过都计入进度）
-            processed_ids += 1
-            progress = int((processed_ids / total_ids) * 100)
-            self.progress_updated.emit(self.worker_id, progress)
+                # 更新进度（无论是否跳过都计入进度）
+                processed_ids += 1
+                progress = int((processed_ids / total_ids) * 100)
+                self.progress_updated.emit(self.worker_id, progress)
 
-            # 检查是否已经请求过
-            if str(id) in self.history:
-                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 已经请求过，跳过")
-                continue
-
-            try:
-                # 获取第一页数据
-                first_response = self.make_request(id, 1)
-                # 打印完整的响应内容
-                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 响应内容: {json.dumps(first_response, ensure_ascii=False)}")
-                
-                if not first_response or 'error' in first_response:
-                    self.request_finished.emit(first_response or {'error': '请求失败'})
+                # 检查是否已经请求过
+                if str(id) in self.history:
+                    self.log_message.emit(f"线程 {self.worker_id}: ID {id} 已经请求过，跳过")
                     continue
 
-                # 获取总页数
-                total_pages = first_response.get('data', {}).get('totalPage', 1)
-                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 总页数: {total_pages}")
+                try:
+                    # 获取第一页数据
+                    first_response = self.make_request(id, 1)
+                    if not first_response or 'error' in first_response:
+                        self.request_finished.emit(first_response or {'error': '请求失败'})
+                        continue
 
-                # 发送第一页数据
-                self.request_finished.emit(first_response)
+                    # 获取总页数
+                    total_pages = first_response.get('data', {}).get('totalPage', 1)
+                    self.log_message.emit(f"线程 {self.worker_id}: ID {id} 总页数: {total_pages}")
 
-                # 如果有多页，获取其他页的数据
-                if total_pages > 1:
-                    for page in range(2, total_pages + 1):
-                        if not self.is_running:
-                            break
-                        
-                        response = self.make_request(id, page)
-                        # 打印其他页的响应内容
-                        self.log_message.emit(f"线程 {self.worker_id}: ID {id} 第{page}页响应内容: {json.dumps(response, ensure_ascii=False)}")
-                        
-                        if response and 'error' not in response:
-                            # 合并数据
-                            if 'data' in response and 'data' in response['data']:
-                                first_response['data']['data'].extend(response['data']['data'])
-                            self.log_message.emit(f"线程 {self.worker_id}: ID {id} 获取第 {page} 页成功")
-                        
-                        if self.is_running:
-                            time.sleep(self.interval)
-
-                    # 发送合并后的完整数据
+                    # 发送第一页数据
                     self.request_finished.emit(first_response)
+
+                    # 如果有多页，获取其他页的数据
+                    if total_pages > 1:
+                        for page in range(2, total_pages + 1):
+                            if not self.is_running:
+                                break
+                            
+                            response = self.make_request(id, page)
+                            if response and 'error' not in response:
+                                if 'data' in response and 'data' in response['data']:
+                                    first_response['data']['data'].extend(response['data']['data'])
+                                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 获取第 {page} 页成功")
+                            
+                            if self.is_running:
+                                time.sleep(self.interval)
+
+                        # 发送合并后的完整数据
+                        self.request_finished.emit(first_response)
+                    
+                    self.log_message.emit(f"线程 {self.worker_id}: ID {id} 所有页面请求完成")
+                    
+                except Exception as e:
+                    self.log_message.emit(f"线程 {self.worker_id}: ID {id} 请求失败: {str(e)}")
                 
-                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 所有页面请求完成")
-                
-            except Exception as e:
-                self.log_message.emit(f"线程 {self.worker_id}: ID {id} 请求失败: {str(e)}")
-            
-            if self.is_running:
-                time.sleep(self.interval)
+                if self.is_running:
+                    time.sleep(self.interval)
+
+            # 所有ID处理完成后，发送工作完成信号
+            self.work_completed.emit(self.worker_id, self.end_id)
+            self.log_message.emit(f"线程 {self.worker_id} 完成工作")
+
+        except Exception as e:
+            self.log_message.emit(f"线程 {self.worker_id} 发生错误: {str(e)}")
+            # 发生错误时也要发送完成信号
+            self.work_completed.emit(self.worker_id, self.end_id)
+        finally:
+            # 通知线程池工作完成
+            self.thread_pool.worker_finished()
+            self.is_running = False
 
     def make_request(self, id, page=1):
         """发送单个请求并返回响应"""
@@ -167,6 +205,10 @@ class RequestWorker(QObject):
         response_data = response.json()
         # 在响应中添加请求参数
         response_data['params'] = params
+        
+        # 添加日志记录
+        self.log_message.emit(f"线程 {self.worker_id}: ID {id} 第 {page} 页响应: {json.dumps(response_data, ensure_ascii=False)}")
+        
         return response_data
 
     def stop(self):
@@ -383,6 +425,9 @@ class MainWindow(QMainWindow):
         # 设置窗口标题和大小
         self.setWindowTitle("TGCloud - Telegram云控系统")
         self.setMinimumSize(1200, 800)
+        
+        # 添加线程完成追踪
+        self.completed_workers = set()
         
         self.setup_ui()
         self.setup_connections()
@@ -665,30 +710,51 @@ class MainWindow(QMainWindow):
         # 初始化线程池
         self.thread_pool = ThreadPoolManager()
         
-        # 计算ID范围和线程分配
-        target_id = self.target_id_spinbox.value()
+        # 保存初始目标ID，用于后续重启
+        self.initial_target_id = self.target_id_spinbox.value()
+        self.current_target_id = self.initial_target_id
+        
+        # 启动线程
+        self.start_thread_batch()
+        
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+
+    def start_thread_batch(self):
+        """启动一批线程"""
         interval = self.interval_spinbox.value()
+        auth_config = self.config_tab.get_auth_config()
         
         # 计算需要多少个完整的100ID块
-        full_blocks = target_id // 100
-        remainder = target_id % 100
+        full_blocks = self.current_target_id // 100
+        remainder = self.current_target_id % 100
         total_threads = full_blocks + (1 if remainder > 0 else 0)
         
         # 限制线程数不超过用户设置
         thread_count = min(self.thread_spinbox.value(), total_threads)
         
-        # 预先创建所有进度条
-        for i in range(thread_count):
-            progress_layout = QHBoxLayout()
-            progress_layout.addWidget(QLabel(f"线程 {i+1}:"))
-            progress_bar = QProgressBar()
-            progress_bar.setTextVisible(True)
-            progress_bar.setValue(0)  # 初始化进度为0
-            self.thread_progress_bars[i+1] = progress_bar
-            progress_layout.addWidget(progress_bar)
-            self.thread_progress_layout.addLayout(progress_layout)
+        # 如果没有更多ID需要处理，停止
+        if self.current_target_id <= 0:
+            self.append_log("所有ID处理完成")
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            return
+            
+        # 清理旧的进度条和线程
+        while self.thread_progress_layout.count():
+            child = self.thread_progress_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        self.thread_progress_bars.clear()
         
-        current_start = target_id
+        # 重新初始化线程池
+        self.thread_pool = ThreadPoolManager()
+        
+        # 记录本批次需要完成的线程数
+        self.expected_thread_count = thread_count
+        self.completed_thread_count = 0
+        
+        current_start = self.current_target_id
         
         # 创建并启动工作线程
         for i in range(thread_count):
@@ -708,7 +774,8 @@ class MainWindow(QMainWindow):
                 interval=interval,
                 cookie=auth_config['cookie'],
                 token=auth_config['token'],
-                history=self.config.history
+                history=self.config.history,
+                thread_pool=self.thread_pool
             )
             
             # 创建线程
@@ -719,51 +786,46 @@ class MainWindow(QMainWindow):
             worker.request_finished.connect(self.handle_request_finished)
             worker.progress_updated.connect(self.update_thread_progress)
             worker.log_message.connect(self.append_log)
+            worker.work_completed.connect(self.handle_work_completed)
             thread.started.connect(worker.run)
             
             # 添加到线程池
             self.thread_pool.add_worker(worker, thread)
+            
+            # 创建进度条
+            progress_layout = QHBoxLayout()
+            progress_layout.addWidget(QLabel(f"线程 {i+1}:"))
+            progress_bar = QProgressBar()
+            progress_bar.setTextVisible(True)
+            progress_bar.setValue(0)
+            self.thread_progress_bars[i+1] = progress_bar
+            progress_layout.addWidget(progress_bar)
+            self.thread_progress_layout.addLayout(progress_layout)
             
             # 启动线程
             thread.start()
             
             current_start = thread_end - 1
             
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-
-    def validate_inputs(self):
-        """验证输入"""
-        self.append_log("正在验证输入...")
-        if self.target_id_spinbox.value() < 0:
-            self.append_log(f"验证失败: 目标ID({self.target_id_spinbox.value()})小于0")
-            QMessageBox.warning(self, "错误", "目标ID不能小于0")
-            return False
+        # 更新当前目标ID
+        self.current_target_id = current_start
         
-        self.append_log("输入验证通过")
-        return True
-
-    def stop_requests(self):
-        """停止请求"""
-        if hasattr(self, 'thread_pool'):
-            self.thread_pool.stop_all()
-            self.thread_pool.wait_all()
-            self.append_log("正在停止所有线程...")
-            self.start_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-            
-            # 清理资源
-            self.thread_pool.clear()
-            delattr(self, 'thread_pool')
+        # 清空已完成线程集合
+        self.completed_workers.clear()
 
     def handle_request_finished(self, response):
         """处理请求完成的响应"""
         try:
+            # 记录完整响应
+            self.append_log(f"收到响应: {json.dumps(response, ensure_ascii=False)}")
+            
             # 分析响应数据，提取两步验证信息
             if not isinstance(response, dict):
+                self.append_log("响应格式错误，不是有效的JSON对象")
                 return
                 
             if 'error' in response:
+                self.append_log(f"请求出错: {response['error']}")
                 return
                 
             current_time = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -774,15 +836,30 @@ class MainWindow(QMainWindow):
             verification_info = self.extract_2fa_info(response_str)
             has_2fa = verification_info['has_2fa']
             
+            # 记录验证码提取结果
+            self.append_log(f"ID {id} 验证码提取结果: {json.dumps(verification_info, ensure_ascii=False)}")
+            
             # 保存到历史记录（无论是否有两步验证）
             try:
-                self.config.add_history(id, response, has_2fa, current_time, verification_info['code'])
-                self.append_log(f"ID {id} 数据保存成功")
+                # 只有当有验证码时才保存
+                if verification_info['code']:
+                    self.config.add_history(id, response, has_2fa, current_time, verification_info['code'])
+                    self.append_log(f"ID {id} 数据保存成功")
+                else:
+                    # 如果没有验证码，只保存账号信息
+                    account_data = {
+                        'account_id': str(id),
+                        'has_2fa': has_2fa,
+                        'status': 0
+                    }
+                    self.config.db.save_account(account_data)
+                    self.append_log(f"ID {id} 账号信息保存成功")
             except Exception as e:
                 self.append_log(f"ID {id} 数据保存失败: {str(e)}")
             
             # 只显示有两步验证的结果
             if not has_2fa:
+                self.append_log(f"ID {id} 无两步验证，跳过显示")
                 return
                 
             # 添加到结果表格
@@ -827,6 +904,16 @@ class MainWindow(QMainWindow):
                 'code': match.group(1),
                 'display_text': match.group(0)
             }
+            
+        # 检查是否有其他类型的验证码
+        match = re.search(r'验证码[：:]\s*([A-Za-z0-9]+)', response_str)
+        if match:
+            return {
+                'has_2fa': True,
+                'code': match.group(1),
+                'display_text': f"验证码: {match.group(1)}"
+            }
+            
         return {
             'has_2fa': False,
             'code': None,
@@ -954,6 +1041,73 @@ class MainWindow(QMainWindow):
             print(error_msg)
             self.append_log(error_msg)
             QMessageBox.warning(self, "错误", error_msg)
+
+    def handle_work_completed(self, worker_id, last_id):
+        """处理工作完成信号"""
+        self.append_log(f"线程 {worker_id} 完成工作，最后处理的ID: {last_id}")
+        
+        # 将完成的worker_id添加到集合中
+        self.completed_workers.add(worker_id)
+        
+        # 检查是否所有线程都完成了
+        if len(self.completed_workers) >= self.expected_thread_count:
+            def check_thread_pool():
+                if not self.thread_pool.has_active_workers():
+                    self.append_log(f"当前批次处理完成，最后处理的ID: {last_id}")
+                    
+                    # 等待所有线程完全停止
+                    try:
+                        self.thread_pool.wait_all()
+                    except Exception as e:
+                        self.append_log(f"等待线程完成时出错: {str(e)}")
+                    
+                    # 清理旧的线程池
+                    self.thread_pool.clear()
+                    
+                    # 所有线程都确实完成了，可以启动新批次
+                    if self.current_target_id > 0:
+                        self.append_log("启动新的批次...")
+                        QTimer.singleShot(500, self.start_thread_batch)
+                    else:
+                        self.append_log("所有ID处理完成")
+                        self.start_button.setEnabled(True)
+                        self.stop_button.setEnabled(False)
+                else:
+                    # 如果还有活动的工作线程，继续检查
+                    QTimer.singleShot(500, check_thread_pool)
+            
+            # 开始检查
+            check_thread_pool()
+
+    def validate_inputs(self):
+        """验证输入"""
+        self.append_log("正在验证输入...")
+        if self.target_id_spinbox.value() < 0:
+            self.append_log(f"验证失败: 目标ID({self.target_id_spinbox.value()})小于0")
+            QMessageBox.warning(self, "错误", "目标ID不能小于0")
+            return False
+        
+        self.append_log("输入验证通过")
+        return True
+
+    def stop_requests(self):
+        """停止请求"""
+        if hasattr(self, 'thread_pool'):
+            self.append_log("正在停止所有线程...")
+            self.thread_pool.stop_all()
+            
+            # 等待所有线程完全停止
+            for thread in self.thread_pool.threads:
+                if thread.isRunning():
+                    thread.quit()
+                    thread.wait()
+            
+            self.thread_pool.clear()
+            delattr(self, 'thread_pool')
+            
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.append_log("所有线程已停止")
 
 if __name__ == "__main__":
     # 禁用SSL警告
