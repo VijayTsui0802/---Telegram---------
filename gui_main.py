@@ -1052,6 +1052,11 @@ class MainWindow(QMainWindow):
         # 检查是否所有线程都完成了
         if len(self.completed_workers) >= self.expected_thread_count:
             def check_thread_pool():
+                # 检查 thread_pool 是否存在
+                if not hasattr(self, 'thread_pool'):
+                    self.append_log("线程池已被清理，停止检查")
+                    return
+                    
                 if not self.thread_pool.has_active_workers():
                     self.append_log(f"当前批次处理完成，最后处理的ID: {last_id}")
                     
@@ -1098,13 +1103,19 @@ class MainWindow(QMainWindow):
             
             # 等待所有线程完全停止
             for thread in self.thread_pool.threads:
-                if thread.isRunning():
-                    thread.quit()
-                    thread.wait()
+                if thread and thread.isRunning():
+                    try:
+                        thread.quit()
+                        thread.wait(1000)  # 等待最多1秒
+                    except Exception as e:
+                        self.append_log(f"停止线程时出错: {str(e)}")
             
+            # 清理资源
             self.thread_pool.clear()
             delattr(self, 'thread_pool')
             
+            # 重置状态
+            self.completed_workers.clear()
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
             self.append_log("所有线程已停止")
