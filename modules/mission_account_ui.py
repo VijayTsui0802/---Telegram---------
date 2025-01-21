@@ -487,8 +487,13 @@ class MissionAccountTab(QWidget):
             self.current_page = 1
             self.load_data_from_db()
             
+            # 恢复按钮状态
+            self.cleanup()
+            
         except Exception as e:
             self.log_message(f"处理响应数据时出错: {str(e)}")
+            # 确保在出错时也恢复按钮状态
+            self.cleanup()
             
     def cleanup(self):
         """清理资源并重置UI"""
@@ -557,7 +562,6 @@ class MissionAccountTab(QWidget):
         
         # 处理完成后的清理
         self.work_thread.finished.connect(self.work_thread.deleteLater)
-        self.work_thread.finished.connect(self.cleanup)
         
         # 启动线程
         self.work_thread.started.connect(self.worker.process_request)
