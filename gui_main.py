@@ -86,7 +86,6 @@ class ThreadPoolManager:
 class RequestWorker(QObject):
     """请求处理线程"""
     request_finished = pyqtSignal(dict)  # 请求完成信号
-    progress_updated = pyqtSignal(int, int)   # 进度更新信号(线程ID, 进度)
     log_message = pyqtSignal(str)        # 日志信息信号
     work_completed = pyqtSignal(int, int)  # 工作完成信号(worker_id, last_id)
     all_work_done = pyqtSignal()  # 所有工作完成信号
@@ -106,21 +105,12 @@ class RequestWorker(QObject):
     def run(self):
         """运行线程"""
         try:
-            # 计算总任务数（包括跳过的ID）
-            total_ids = self.start_id - self.end_id + 1
-            processed_ids = 0
-
             self.log_message.emit(f"线程 {self.worker_id} 开始处理: {self.start_id} - {self.end_id}")
 
             # 倒序处理ID
             for id in range(self.start_id, self.end_id - 1, -1):
                 if not self.is_running:
                     break
-
-                # 更新进度（无论是否跳过都计入进度）
-                processed_ids += 1
-                progress = int((processed_ids / total_ids) * 100)
-                self.progress_updated.emit(self.worker_id, progress)
 
                 # 检查是否已经请求过
                 if str(id) in self.history:
@@ -517,7 +507,7 @@ class MainWindow(QMainWindow):
         thread_layout = QHBoxLayout()
         thread_layout.addWidget(QLabel("线程数:"))
         self.thread_spinbox = QSpinBox()
-        self.thread_spinbox.setRange(1, 100)  # 修改最大线程数为100
+        self.thread_spinbox.setRange(1, 99999)  # 修改最大线程数为99999
         self.thread_spinbox.setValue(3)
         thread_layout.addWidget(self.thread_spinbox)
         task_layout.addLayout(thread_layout)
@@ -542,13 +532,6 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.save_button)
         
         layout.addLayout(button_layout)
-        
-        # 线程进度区域
-        self.thread_progress_group = QGroupBox("线程进度")
-        self.thread_progress_layout = QVBoxLayout()
-        self.thread_progress_bars = {}  # 存储线程进度条
-        self.thread_progress_group.setLayout(self.thread_progress_layout)
-        layout.addWidget(self.thread_progress_group)
         
         # 创建一个垂直分割器
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -700,13 +683,6 @@ class MainWindow(QMainWindow):
         # 清空表格
         self.result_table.setRowCount(0)
         
-        # 清理旧的进度条和布局
-        while self.thread_progress_layout.count():
-            child = self.thread_progress_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-        self.thread_progress_bars.clear()
-        
         # 初始化线程池
         self.thread_pool = ThreadPoolManager()
         
@@ -740,13 +716,6 @@ class MainWindow(QMainWindow):
             self.stop_button.setEnabled(False)
             return
             
-        # 清理旧的进度条和线程
-        while self.thread_progress_layout.count():
-            child = self.thread_progress_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-        self.thread_progress_bars.clear()
-        
         # 重新初始化线程池
         self.thread_pool = ThreadPoolManager()
         
@@ -784,23 +753,12 @@ class MainWindow(QMainWindow):
             
             # 连接信号
             worker.request_finished.connect(self.handle_request_finished)
-            worker.progress_updated.connect(self.update_thread_progress)
             worker.log_message.connect(self.append_log)
             worker.work_completed.connect(self.handle_work_completed)
             thread.started.connect(worker.run)
             
             # 添加到线程池
             self.thread_pool.add_worker(worker, thread)
-            
-            # 创建进度条
-            progress_layout = QHBoxLayout()
-            progress_layout.addWidget(QLabel(f"线程 {i+1}:"))
-            progress_bar = QProgressBar()
-            progress_bar.setTextVisible(True)
-            progress_bar.setValue(0)
-            self.thread_progress_bars[i+1] = progress_bar
-            progress_layout.addWidget(progress_bar)
-            self.thread_progress_layout.addLayout(progress_layout)
             
             # 启动线程
             thread.start()
@@ -919,11 +877,6 @@ class MainWindow(QMainWindow):
             'code': None,
             'display_text': '否'
         }
-
-    def update_thread_progress(self, thread_id, progress):
-        """更新线程进度"""
-        if thread_id in self.thread_progress_bars:
-            self.thread_progress_bars[thread_id].setValue(progress)
 
     def append_log(self, message):
         """添加并保存日志"""

@@ -408,77 +408,52 @@ class Database:
         except Exception as e:
             print(f"数据迁移失败: {e}") 
 
-    def get_all_accounts(self, page: int = 1, limit: int = 10) -> Dict[str, Any]:
-        """获取所有账号列表"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # 获取总记录数（排除未知和已删除状态）
-            cursor.execute('SELECT COUNT(*) FROM accounts WHERE status NOT IN (2, 3)')
-            total = cursor.fetchone()[0]
-            
-            # 获取分页数据
-            cursor.execute('''
-                SELECT 
-                    a.*,
-                    ma.status as mission_status,
-                    ma.mission_id,
-                    v.code as verification_code,
-                    v.send_time as code_send_time,
-                    v.created_at as code_created_at
-                FROM accounts a
-                LEFT JOIN (
-                    SELECT account_id, mission_id, status
-                    FROM mission_accounts ma1
-                    WHERE created_at = (
+    def get_all_accounts(self, page=1, limit=10, has_2fa=None):
+        """获取所有账号"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 计算偏移量
+                offset = (page - 1) * limit
+                
+                # 构建基础查询
+                base_query = """
+                    SELECT a.*, v.code, v.send_time, v.created_at as code_created_at
+                    FROM accounts a
+                    LEFT JOIN verification_codes v ON a.account_id = v.account_id
+                    AND v.created_at = (
                         SELECT MAX(created_at)
-                        FROM mission_accounts ma2
-                        WHERE ma2.account_id = ma1.account_id
+                        FROM verification_codes
+                        WHERE account_id = a.account_id
                     )
-                ) ma ON a.account_id = ma.account_id
-                LEFT JOIN (
-                    SELECT account_id, code, send_time, created_at
-                    FROM verification_codes vc1
-                    WHERE created_at = (
-                        SELECT MAX(created_at)
-                        FROM verification_codes vc2
-                        WHERE vc2.account_id = vc1.account_id
-                    )
-                ) v ON a.account_id = v.account_id
-                WHERE a.status NOT IN (2, 3)  -- 排除未知和已删除状态
-                ORDER BY a.created_at DESC
-                LIMIT ? OFFSET ?
-            ''', (limit, (page - 1) * limit))
-            
-            rows = cursor.fetchall()
-            accounts = []
-            for row in rows:
-                account = {
-                    'id': row[0],
-                    'account_id': row[1],
-                    'phone': row[2],
-                    'username': row[3],
-                    'has_2fa': bool(row[4]),
-                    'account_status': row[5],  # 账号状态
-                    'success_count': row[6],
-                    'fail_count': row[7],
-                    'group': row[8],  # 分组名称
-                    'two_step_password': row[9],
-                    'created_at': row[10],
-                    'updated_at': row[11],
-                    'status': row[12],  # 任务状态
-                    'mission_id': row[13],
-                    'verification_code': {
-                        'code': row[14],
-                        'send_time': row[15],
-                        'created_at': row[16]
-                    } if row[14] else {}
+                """
+                
+                # 添加 two_step_password 不为空的条件
+                where_clause = "WHERE a.two_step_password IS NOT NULL AND a.two_step_password != ''"
+                
+                # 获取总记录数
+                count_query = f"SELECT COUNT(*) FROM accounts a {where_clause}"
+                cursor.execute(count_query)
+                total = cursor.fetchone()[0]
+                
+                # 获取分页数据
+                query = f"{base_query} {where_clause} ORDER BY a.account_id DESC LIMIT ? OFFSET ?"
+                cursor.execute(query, (limit, offset))
+                
+                # 转换为字典列表
+                accounts = []
+                for row in cursor.fetchall():
+                    account = dict()
+                    for idx, col in enumerate(cursor.description):
+                        account[col[0]] = row[idx]
+                    accounts.append(account)
+                
+                return {
+                    'total': total,
+                    'data': accounts
                 }
-                accounts.append(account)
-            
-            return {
-                'total': total,
-                'page': page,
-                'limit': limit,
-                'data': accounts
-            } 
+                
+        except Exception as e:
+            print(f"获取账号列表失败: {e}")
+            return {'total': 0, 'data': []} 

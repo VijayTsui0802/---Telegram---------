@@ -364,6 +364,7 @@ class MissionAccountWorker(QObject):
             'online': 0,      # 在线
             'offline': 1,     # 离线
             'deleted': 2,     # 已删除
+            'error': 3,       # 错误
             'unknown': 3,     # 未知
             '': 3            # 空值也返回未知
         }
@@ -374,7 +375,9 @@ class MissionAccountWorker(QObject):
         status_map = {
             'not_start': 0,   # 未开始
             'running': 1,     # 进行中
+            'finish': 2,      # 已完成
             'finished': 2,    # 已完成
-            'failed': 3       # 已失败
+            'failed': 3,      # 已失败
+            'error': 3        # 错误
         }
-        return status_map.get(status.lower(), 0) 
+        return status_map.get(str(status).lower(), 0)  # 默认返回未开始(0) 
