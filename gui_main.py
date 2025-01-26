@@ -395,6 +395,12 @@ class MainWindow(QMainWindow):
         self.config = Config()
         self.is_loading = False
         
+        # 日志相关
+        self.pending_logs = []
+        self.log_update_timer = QTimer()
+        self.log_update_timer.timeout.connect(self.process_pending_logs)
+        self.log_update_timer.start(100)  # 每100ms更新一次日志
+        
         # 添加分页相关属性
         self.current_page = 1
         self.total_pages = 1
@@ -880,14 +886,40 @@ class MainWindow(QMainWindow):
 
     def append_log(self, message):
         """添加并保存日志"""
-        # 添加到界面
-        self.log_area.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}")
+        # 将日志添加到待处理队列
+        current_time = time.strftime('%Y-%m-%d %H:%M:%S')
+        log_message = f"[{current_time}] {message}"
+        self.pending_logs.append(log_message)
+        
+        # 保存到日志文件
+        logging.info(message)
+        
+    def process_pending_logs(self):
+        """批量处理待显示的日志"""
+        if not self.pending_logs:
+            return
+            
+        # 获取当前文本
+        current_text = self.log_area.toPlainText()
+        lines = current_text.split('\n') if current_text else []
+        
+        # 添加新日志
+        lines.extend(self.pending_logs)
+        
+        # 如果超过1000行，只保留最新的1000行
+        if len(lines) > 1000:
+            lines = lines[-1000:]
+            
+        # 更新文本框
+        self.log_area.setPlainText('\n'.join(lines))
+        
+        # 滚动到底部
         self.log_area.verticalScrollBar().setValue(
             self.log_area.verticalScrollBar().maximum()
         )
         
-        # 保存到日志文件
-        logging.info(message)
+        # 清空待处理日志
+        self.pending_logs.clear()
 
     def show_context_menu(self, position):
         """显示右键菜单"""
@@ -1072,6 +1104,14 @@ class MainWindow(QMainWindow):
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
             self.append_log("所有线程已停止")
+
+    def closeEvent(self, event):
+        """窗口关闭时的处理"""
+        # 停止日志更新定时器
+        self.log_update_timer.stop()
+        # 停止所有请求
+        self.stop_requests()
+        event.accept()
 
 if __name__ == "__main__":
     # 禁用SSL警告
