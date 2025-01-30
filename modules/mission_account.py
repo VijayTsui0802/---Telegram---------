@@ -25,17 +25,22 @@ class MissionAccountWorker(QObject):
         """获取账号的验证码"""
         url = "http://konk.cc/tgcloud/account_operate/update_data"
         
+        # 记录认证信息
+        cookie = self.config.get('Auth', 'cookie')
+        token = self.config.get('Auth', 'token')
+        self.log_message.emit(f"使用认证信息 - Cookie: {cookie[:10]}..., Token: {token[:10]}...")
+        
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "zh-CN,zh;q=0.9,th;q=0.8,zh-TW;q=0.7",
             "Connection": "keep-alive",
             "Content-Type": "application/json",
-            "Cookie": f"PHPSESSID={self.config.get('Auth', 'cookie')}",
+            "Cookie": f"PHPSESSID={cookie}",
             "Origin": "http://konk.cc",
             "Referer": "http://konk.cc/tgcloud_pc/?",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "X-KL-Ajax-Request": "Ajax_Request",
-            "token": self.config.get('Auth', 'token')
+            "token": token
         }
         
         data = {
@@ -48,6 +53,9 @@ class MissionAccountWorker(QObject):
             # 禁用SSL验证警告
             urllib3.disable_warnings()
             
+            self.log_message.emit(f"正在请求验证码 - 账号ID: {account_id}")
+            self.log_message.emit(f"请求数据: {json.dumps(data, ensure_ascii=False)}")
+            
             # 发送POST请求
             response = requests.post(
                 url, 
@@ -56,12 +64,17 @@ class MissionAccountWorker(QObject):
                 verify=False
             )
             
+            # 记录响应状态
+            self.log_message.emit(f"响应状态码: {response.status_code}")
+            
             # 解析响应
             response_data = response.json()
+            self.log_message.emit(f"响应数据: {json.dumps(response_data, ensure_ascii=False)}")
             
             if response_data.get('code') == 1 and 'data' in response_data:
                 conversation_list = response_data['data'].get('conversation_list', {})
                 if 'new_data' in conversation_list and conversation_list['new_data']:
+                    self.log_message.emit(f"找到 {len(conversation_list['new_data'])} 条新消息")
                     for conversation in conversation_list['new_data']:
                         near_msg = conversation.get('near_msg', '')
                         if near_msg:
@@ -69,6 +82,7 @@ class MissionAccountWorker(QObject):
                             try:
                                 msg_data = json.loads(near_msg)
                                 message_text = msg_data.get('message', '')
+                                self.log_message.emit(f"消息内容: {message_text}")
                                 
                                 # 提取验证码
                                 code_match = re.search(r'Login code: (\d+)', message_text)
@@ -82,13 +96,22 @@ class MissionAccountWorker(QObject):
                                     self.code_updated.emit(account_id, code, send_time)
                                     self.log_message.emit(f"获取到账号 {account_id} 的验证码: {code}")
                                     return
-                            except json.JSONDecodeError:
+                                else:
+                                    self.log_message.emit("消息中未找到验证码格式")
+                            except json.JSONDecodeError as e:
+                                self.log_message.emit(f"解析消息JSON失败: {str(e)}")
                                 continue
-                
+                else:
+                    self.log_message.emit("未找到新消息数据")
+            else:
+                self.log_message.emit(f"响应状态异常: code={response_data.get('code')}")
+            
             self.log_message.emit(f"未找到账号 {account_id} 的验证码")
             
         except Exception as e:
-            self.log_message.emit(f"获取验证码失败: {e}")
+            self.log_message.emit(f"获取验证码失败: {str(e)}")
+            import traceback
+            self.log_message.emit(f"错误详情: {traceback.format_exc()}")
 
     def get_mission_list(self) -> Dict[str, Any]:
         """获取任务列表"""
