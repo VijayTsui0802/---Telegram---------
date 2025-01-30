@@ -473,27 +473,60 @@ class MainWindow(QMainWindow):
         self.total_pages = 1
         self.page_size = 10
         
-        # 初始化日志相关属性
-        self.pending_logs = []
-        self.log_update_timer = QTimer()
-        self.log_update_timer.timeout.connect(self.process_pending_logs)
-        self.log_update_timer.start(100)  # 每100ms更新一次日志
-        
         # 初始化线程相关属性
         self.worker = None
         self.work_thread = None
         self.completed_workers = set()
         self.is_loading = False
         
+        # 初始化配置和日志
+        self.config = Config()
+        self.setup_logging()
+        
+        # 创建 UI
+        self.setup_ui()
+        self.setup_connections()
+        
+        # 初始化日志相关属性（移到 UI 创建之后）
+        self.pending_logs = []
+        self.log_update_timer = QTimer()
+        self.log_update_timer.timeout.connect(self.process_pending_logs)
+        self.log_update_timer.start(100)  # 每100ms更新一次日志
+        
+        # 设置应用图标
+        try:
+            # 首先尝试加载 ICO 文件
+            icon_path = Path("assets/logo.ico")
+            if icon_path.exists():
+                self.append_log("正在加载 ICO 图标...")
+                icon = QIcon(str(icon_path))
+            else:
+                # 如果 ICO 不存在，尝试加载 SVG 文件
+                svg_path = Path("assets/logo.svg")
+                if svg_path.exists():
+                    self.append_log("正在加载 SVG 图标...")
+                    icon = QIcon(str(svg_path))
+                else:
+                    self.append_log("警告：未找到图标文件")
+                    icon = QIcon()
+            
+            # 设置窗口图标
+            self.setWindowIcon(icon)
+            
+            # 设置任务栏图标
+            app = QApplication.instance()
+            if app:
+                app.setWindowIcon(icon)
+                
+            self.append_log("图标加载完成")
+            
+        except Exception as e:
+            self.append_log(f"加载图标时出错: {str(e)}")
+        
         # 创建启动画面
         self.splash = QSplashScreen(QPixmap("splash.png") if Path("splash.png").exists() else QPixmap(400, 200))
         self.splash.show()
         self.splash.showMessage("正在加载数据...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter)
-        
-        self.config = Config()
-        self.setup_logging()
-        self.setup_ui()
-        self.setup_connections()
         
         # 异步加载数据
         self.config.load_history_async(self.on_data_loaded)
