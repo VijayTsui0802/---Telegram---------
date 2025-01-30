@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QSpinBox, QLineEdit, QPushButton, QTextEdit,
     QLabel, QProgressBar, QMessageBox, QTableWidget, QTableWidgetItem,
-    QSplitter, QHeaderView, QMenu, QTabWidget, QComboBox
+    QSplitter, QHeaderView, QMenu, QTabWidget, QComboBox, QSplashScreen
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtCore import QObject
@@ -205,6 +205,65 @@ class RequestWorker(QObject):
         """停止线程"""
         self.is_running = False
 
+class DataLoadWorker(QObject):
+    """数据加载工作线程"""
+    finished = pyqtSignal(dict)
+    progress = pyqtSignal(int)
+    
+    def __init__(self, db):
+        super().__init__()
+        self.db = db
+        
+    def run(self):
+        try:
+            history = {}
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 获取总记录数
+                cursor.execute('SELECT COUNT(*) FROM accounts')
+                total = cursor.fetchone()[0]
+                
+                # 分批加载数据
+                batch_size = 1000
+                processed = 0
+                
+                cursor.execute('''
+                    SELECT a.account_id, a.has_2fa, a.status, 
+                           v.code, v.send_time, v.created_at
+                    FROM accounts a
+                    LEFT JOIN verification_codes v ON a.account_id = v.account_id
+                    AND v.created_at = (
+                        SELECT MAX(created_at)
+                        FROM verification_codes
+                        WHERE account_id = a.account_id
+                    )
+                ''')
+                
+                while True:
+                    rows = cursor.fetchmany(batch_size)
+                    if not rows:
+                        break
+                        
+                    for row in rows:
+                        account_id, has_2fa, status, code, send_time, created_at = row
+                        history[str(account_id)] = {
+                            'result': code if code else '',
+                            'has_2fa': bool(has_2fa),
+                            'request_time': created_at if created_at else '',
+                            'imported_to_mission': status == 1
+                        }
+                        
+                        processed += 1
+                        progress = int((processed / total) * 100)
+                        self.progress.emit(progress)
+                
+            self.finished.emit(history)
+            
+        except Exception as e:
+            logging.error(f"数据加载错误: {str(e)}")
+            self.finished.emit({})
+
 class Config:
     """配置管理类"""
     def __init__(self):
@@ -212,14 +271,31 @@ class Config:
         self.history_file = Path("request_history.json")
         self._history = {}  # 添加内存缓存
         self.migrate_history()
-        self.load_history()  # 加载历史记录到内存
-
+        # 不在初始化时加载历史记录
+        
     def migrate_history(self):
         """迁移历史数据"""
         if self.history_file.exists():
             self.db.migrate_from_json(str(self.history_file))
             # 迁移完成后可以重命名历史文件
             self.history_file.rename(self.history_file.with_suffix('.json.bak'))
+
+    def load_history_async(self, callback):
+        """异步加载历史记录"""
+        self.thread = QThread()
+        self.worker = DataLoadWorker(self.db)
+        self.worker.moveToThread(self.thread)
+        
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(lambda history: self._set_history(history))
+        self.worker.finished.connect(callback)
+        
+        self.thread.start()
+        
+    def _set_history(self, history):
+        """设置历史记录"""
+        self._history = history
 
     def load_history(self):
         """从数据库加载历史记录到内存"""
@@ -389,47 +465,44 @@ class MainWindow(QMainWindow):
     """主窗口"""
     def __init__(self):
         super().__init__()
-        self.setup_logging()  # 初始化日志系统
-        self.worker = None
-        self.work_thread = None
-        self.config = Config()
-        self.is_loading = False
+        self.setWindowTitle("TG Cloud 请求模拟工具")
+        self.resize(1200, 800)
         
-        # 日志相关
+        # 初始化分页相关属性
+        self.current_page = 1
+        self.total_pages = 1
+        self.page_size = 10
+        
+        # 初始化日志相关属性
         self.pending_logs = []
         self.log_update_timer = QTimer()
         self.log_update_timer.timeout.connect(self.process_pending_logs)
         self.log_update_timer.start(100)  # 每100ms更新一次日志
         
-        # 添加分页相关属性
-        self.current_page = 1
-        self.total_pages = 1
-        self.page_size = 10  # 默认每页显示10条
-        
-        # 设置窗口图标
-        icon = QIcon("assets/logo.ico")
-        self.setWindowIcon(icon)
-        # 设置任务栏图标
-        app = QApplication.instance()
-        if app:
-            app.setWindowIcon(icon)
-        
-        # 加载样式表
-        with open("modules/styles.qss", "r", encoding="utf-8") as f:
-            self.setStyleSheet(f.read())
-            
-        # 设置窗口标题和大小
-        self.setWindowTitle("TGCloud - Telegram云控系统")
-        self.setMinimumSize(1200, 800)
-        
-        # 添加线程完成追踪
+        # 初始化线程相关属性
+        self.worker = None
+        self.work_thread = None
         self.completed_workers = set()
+        self.is_loading = False
         
+        # 创建启动画面
+        self.splash = QSplashScreen(QPixmap("splash.png") if Path("splash.png").exists() else QPixmap(400, 200))
+        self.splash.show()
+        self.splash.showMessage("正在加载数据...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter)
+        
+        self.config = Config()
+        self.setup_logging()
         self.setup_ui()
         self.setup_connections()
-        self.load_config_values()
-        self.load_history_data()
-
+        
+        # 异步加载数据
+        self.config.load_history_async(self.on_data_loaded)
+        
+    def on_data_loaded(self, history):
+        """数据加载完成回调"""
+        self.load_history_data()  # 刷新界面显示
+        self.splash.finish(self)  # 关闭启动画面
+        
     def setup_logging(self):
         """设置日志系统"""
         # 创建logs目录
