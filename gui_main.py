@@ -209,14 +209,16 @@ class DataLoadWorker(QObject):
     """数据加载工作线程"""
     finished = pyqtSignal(dict)
     progress = pyqtSignal(int)
+    error = pyqtSignal(str)
     
     def __init__(self, db):
         super().__init__()
         self.db = db
+        self._cache = {}
+        self.batch_size = 500
         
     def run(self):
         try:
-            history = {}
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
                 
@@ -224,44 +226,48 @@ class DataLoadWorker(QObject):
                 cursor.execute('SELECT COUNT(*) FROM accounts')
                 total = cursor.fetchone()[0]
                 
-                # 分批加载数据
-                batch_size = 1000
-                processed = 0
+                if total == 0:
+                    self.finished.emit({})
+                    return
                 
-                cursor.execute('''
-                    SELECT a.account_id, a.has_2fa, a.status, 
-                           v.code, v.send_time, v.created_at
-                    FROM accounts a
-                    LEFT JOIN verification_codes v ON a.account_id = v.account_id
-                    AND v.created_at = (
-                        SELECT MAX(created_at)
-                        FROM verification_codes
-                        WHERE account_id = a.account_id
-                    )
-                ''')
-                
+                # 使用分页查询优化
+                offset = 0
                 while True:
-                    rows = cursor.fetchmany(batch_size)
+                    cursor.execute('''
+                        SELECT a.account_id, a.has_2fa, a.status,
+                               v.code, v.send_time, v.created_at
+                        FROM accounts a
+                        LEFT JOIN verification_codes v ON a.account_id = v.account_id
+                        AND v.created_at = (
+                            SELECT MAX(created_at)
+                            FROM verification_codes
+                            WHERE account_id = a.account_id
+                        )
+                        ORDER BY a.created_at DESC
+                        LIMIT ? OFFSET ?
+                    ''', (self.batch_size, offset))
+                    
+                    rows = cursor.fetchall()
                     if not rows:
                         break
                         
                     for row in rows:
                         account_id, has_2fa, status, code, send_time, created_at = row
-                        history[str(account_id)] = {
+                        self._cache[str(account_id)] = {
                             'result': code if code else '',
                             'has_2fa': bool(has_2fa),
                             'request_time': created_at if created_at else '',
                             'imported_to_mission': status == 1
                         }
-                        
-                        processed += 1
-                        progress = int((processed / total) * 100)
-                        self.progress.emit(progress)
+                    
+                    offset += self.batch_size
+                    progress = min(100, int((offset / total) * 100))
+                    self.progress.emit(progress)
+                    
+                self.finished.emit(self._cache)
                 
-            self.finished.emit(history)
-            
         except Exception as e:
-            logging.error(f"数据加载错误: {str(e)}")
+            self.error.emit(f"加载数据失败: {str(e)}")
             self.finished.emit({})
 
 class Config:

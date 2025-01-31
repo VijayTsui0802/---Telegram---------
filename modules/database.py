@@ -69,6 +69,12 @@ class Database:
                     updated_at TIMESTAMP
                 )
             ''')
+            
+            # 添加accounts表索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_accounts_created_at ON accounts(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_accounts_updated_at ON accounts(updated_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_accounts_group_name ON accounts(group_name)')
 
             # 创建missions表
             cursor.execute('''
@@ -81,6 +87,10 @@ class Database:
                     updated_at TIMESTAMP
                 )
             ''')
+            
+            # 添加missions表索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_missions_created_at ON missions(created_at)')
 
             # 创建mission_accounts表
             cursor.execute('''
@@ -94,6 +104,10 @@ class Database:
                     UNIQUE(mission_id, account_id)
                 )
             ''')
+            
+            # 添加mission_accounts表索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mission_accounts_status ON mission_accounts(status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mission_accounts_created_at ON mission_accounts(created_at)')
 
             # 创建verification_codes表
             cursor.execute('''
@@ -105,6 +119,10 @@ class Database:
                     created_at TIMESTAMP
                 )
             ''')
+            
+            # 添加verification_codes表索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_verification_codes_account_id ON verification_codes(account_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_verification_codes_created_at ON verification_codes(created_at)')
 
             # 创建configs表
             cursor.execute('''
@@ -414,37 +432,53 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # 计算偏移量
-                offset = (page - 1) * limit
+                # 构建基础查询和条件
+                where_conditions = []
+                params = []
                 
-                # 构建基础查询
-                base_query = """
-                    SELECT a.*, v.code, v.send_time, v.created_at as code_created_at
-                    FROM accounts a
-                    LEFT JOIN verification_codes v ON a.account_id = v.account_id
-                    AND v.created_at = (
-                        SELECT MAX(created_at)
-                        FROM verification_codes
-                        WHERE account_id = a.account_id
-                    )
-                """
+                if has_2fa is not None:
+                    where_conditions.append("a.has_2fa = ?")
+                    params.append(has_2fa)
                 
-                # 添加 two_step_password 不为空的条件
-                where_clause = "WHERE a.two_step_password IS NOT NULL AND a.two_step_password != ''"
+                # 添加 two_step_password 条件
+                where_conditions.append("a.two_step_password IS NOT NULL AND a.two_step_password != ''")
                 
-                # 获取总记录数
+                # 组合WHERE子句
+                where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+                
+                # 获取总记录数（使用更高效的查询）
                 count_query = f"SELECT COUNT(*) FROM accounts a {where_clause}"
-                cursor.execute(count_query)
+                cursor.execute(count_query, params)
                 total = cursor.fetchone()[0]
                 
-                # 获取分页数据
-                query = f"{base_query} {where_clause} ORDER BY a.account_id DESC LIMIT ? OFFSET ?"
-                cursor.execute(query, (limit, offset))
+                # 计算分页
+                offset = (page - 1) * limit
+                
+                # 优化主查询
+                query = f"""
+                    WITH latest_codes AS (
+                        SELECT account_id, code, send_time, created_at,
+                               ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY created_at DESC) as rn
+                        FROM verification_codes
+                    )
+                    SELECT a.*, v.code, v.send_time, v.created_at as code_created_at
+                    FROM accounts a
+                    LEFT JOIN latest_codes v ON a.account_id = v.account_id AND v.rn = 1
+                    {where_clause}
+                    ORDER BY a.created_at DESC
+                    LIMIT ? OFFSET ?
+                """
+                
+                # 添加分页参数
+                params.extend([limit, offset])
+                
+                # 执行查询
+                cursor.execute(query, params)
                 
                 # 转换为字典列表
                 accounts = []
                 for row in cursor.fetchall():
-                    account = dict()
+                    account = {}
                     for idx, col in enumerate(cursor.description):
                         account[col[0]] = row[idx]
                     accounts.append(account)
