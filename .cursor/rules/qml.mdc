@@ -1,0 +1,187 @@
+---
+description: 
+globs: 
+---
+# QML 企业级应用开发规范
+
+## 命名规范
+
+### 文件命名
+- QML文件使用PascalCase: `CustomButton.qml`
+- 资源文件使用小写加下划线: `background_image.png`
+- 每个组件一个文件
+- 文件名要与组件名一致
+
+### 组件命名
+- 自定义组件使用PascalCase
+- id使用camelCase
+- 属性使用camelCase
+- 信号使用on开头: `onClicked`
+- 处理函数使用handle开头: `handleClick`
+
+## 代码组织规范
+
+### 属性声明顺序
+1. id
+2. 属性绑定
+3. 信号声明
+4. 对象属性
+5. 可视化属性
+6. 变换
+7. 行为定义
+8. 状态/过渡
+9. 子组件
+
+### 示例
+```qml
+Rectangle {
+    id: root
+    
+    // 属性绑定
+    width: parent.width
+    height: 100
+    
+    // 信号
+    signal clicked
+    
+    // 对象属性
+    property int count: 0
+    
+    // 可视化属性
+    color: "blue"
+    radius: 5
+    
+    // 变换
+    transform: Scale { xScale: 1.5 }
+    
+    // 行为
+    Behavior on opacity {
+        NumberAnimation { duration: 200 }
+    }
+    
+    // 状态
+    states: [
+        State {
+            name: "pressed"
+            PropertyChanges { target: root; scale: 0.9 }
+        }
+    ]
+    
+    // 子组件
+    Text {
+        anchors.centerIn: parent
+        text: "Button"
+    }
+}
+```
+
+## 性能优化规范
+
+### 图片资源
+- 使用适当的图片格式
+- 避免过大分辨率
+- 使用Image.cache属性
+- 及时释放不需要的资源
+
+### 绑定优化
+- 避免复杂的绑定表达式
+- 使用缓存属性值
+- 避免在高频更新中使用绑定
+
+### 组件优化
+- 使用Loader懒加载
+- 适当使用Component.onCompleted
+- 使用visible替代opacity: 0
+- 合理使用Layer效果
+
+## JavaScript使用规范
+
+### 代码位置
+- 简单逻辑直接在属性绑定中
+- 复杂逻辑放在函数中
+- 公共函数放在.js文件中
+
+### 函数定义
+```qml
+function handleClick() {
+    // 使用清晰的函数名
+    // 保持函数功能单一
+}
+```
+
+## 布局规范
+
+### 定位
+- 优先使用锚点布局
+- 合理使用ColumnLayout/RowLayout
+- 避免绝对定位
+- 使用Layout.fillWidth/fillHeight
+
+### 响应式
+- 使用Grid/Flow布局实现响应式
+- 合理使用Layout.preferredWidth
+- 使用Layout.minimumWidth/maximumWidth
+
+## 最佳实践
+
+### 组件复用
+- 抽象通用组件
+- 使用属性接口
+- 避免组件间强耦合
+- 合理使用信号通信
+
+### 状态管理
+- 使用states管理状态
+- 使用transitions定义转换
+- 避免复杂的状态判断
+
+### 主题
+- 使用SystemPalette
+- 定义全局调色板
+- 使用主题常量
+
+## 调试技巧
+
+### 开发工具
+- 使用Qt Creator QML调试器
+- 使用qml工具检查性能
+- 使用Chrome调试工具
+
+### 调试方法
+- console.log()输出信息
+- 使用Timer诊断性能
+- 使用Qt.createComponent动态加载
+
+## 常见陷阱
+
+### 避免
+- 过度使用JavaScript
+- 循环引用
+- 内存泄漏
+- 过度绑定
+
+### 建议
+- 及时清理组件
+- 使用Connections替代on*信号
+- 合理使用Component.onDestruction
+- 注意属性别名的使用
+
+## 文档规范
+
+### 注释
+- 组件顶部添加文档注释
+- 复杂属性添加说明
+- 关键算法添加说明
+- 使用TODO标记待办
+
+### 示例
+```qml
+/*!
+    自定义按钮组件
+    
+    使用示例:
+    CustomButton {
+        text: "Click Me"
+        onClicked: console.log("clicked")
+    }
+*/
